@@ -1,11 +1,52 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+import cookieParser from 'cookie-parser';
+import { createClient } from 'redis';
 const { executeCode } = require('./executor');
 
 const app = express();
+
+app.use(cookieParser());
 app.use(bodyParser.json());
 
-app.post('/execute', async (req, res) => {
+let redisClient = createClient(
+    {
+        url: `redis://${REDIS_HOST}:${REDIS_PORT}`,
+    }
+)
+redisClient.connect().catch(console.error)
+
+const checkSession = async (req, res, next) => {
+    try {
+        const sessionId = req.cookies['connect.sid']?.replace('s:', '').split('.')[0]; // Extract session ID
+        if (!sessionId) {
+            return res.status(401).json({ error: 'Unauthorized: No session ID' });
+        }
+
+        const sessionKey = `${REDIS_PREFIX}sess:${sessionId}`;
+        const sessionData = await redisClient.get(sessionKey);
+
+        if (!sessionData) {
+            return res.status(401).json({ error: 'Unauthorized: Session not found' });
+        }
+
+        const session = JSON.parse(sessionData);
+
+        // Check for authentication
+        if (!session.passport || !session.passport.user) {
+            return res.status(401).json({ error: 'Unauthorized: User not authenticated' });
+        }
+
+        // Attach user information to the request
+        req.user = session.passport.user;
+        next();
+    } catch (error) {
+        console.error('Error verifying session:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+app.post('/execute', checkSession, async (req, res) => {
     const { language, code, stdin, expectedOutput, runTests, testCode } = req.body;
 
     // Basic validation
