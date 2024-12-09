@@ -1,7 +1,7 @@
 const express = require("express");
 const bodyParser = require("body-parser");
-import cookieParser from "cookie-parser";
-import { createClient } from "redis";
+const cookieParser = require("cookie-parser");
+const { createClient } = require("redis");
 const { executeCode } = require("./executor");
 
 const app = express();
@@ -9,30 +9,56 @@ const app = express();
 app.use(cookieParser());
 app.use(bodyParser.json());
 
+const REDIS_HOST = process.env.REDIS_HOST ?? "localhost";
+const REDIS_PORT = process.env.REDIS_PORT
+  ? Number(process.env.REDIS_PORT)
+  : 6379;
+const REDIS_PREFIX = process.env.REDIS_PREFIX ?? "codewit";
+
 let redisClient = createClient({
   url: `redis://${REDIS_HOST}:${REDIS_PORT}`,
 });
 redisClient.connect().catch(console.error);
 
+const decodeURIComponentSafe = (str) => {
+  try {
+    return decodeURIComponent(str);
+  } catch (error) {
+    return str;
+  }
+};
+
 const checkSession = async (req, res, next) => {
   try {
-    const sessionId = req.cookies["connect.sid"]
-      ?.replace("s:", "")
-      .split(".")[0];
-    if (!sessionId) {
-      return res.status(401).json({ error: "Unauthorized: No session ID" });
+    const sessionCookie = req.cookies["connect.sid"];
+    if (!sessionCookie) {
+      return res.status(401).json({ error: "Unauthorized: No session cookie" });
     }
 
-    const sessionKey = `${REDIS_PREFIX}sess:${sessionId}`;
+    const decodedCookie = decodeURIComponentSafe(sessionCookie);
+
+    const sessionId = decodedCookie.startsWith("s:")
+      ? decodedCookie.substring(2).split(".")[0]
+      : decodedCookie.split(".")[0];
+
+    if (!sessionId) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: Invalid session ID: " });
+    }
+
+    const sessionKey = `${REDIS_PREFIX}:${sessionId}`;
     const sessionData = await redisClient.get(sessionKey);
 
     if (!sessionData) {
-      return res.status(401).json({ error: "Unauthorized: Session not found" });
+      return res.status(401).json({
+        error: "Unauthorized: Session not found or expired:",
+      });
     }
 
     const session = JSON.parse(sessionData);
 
-    if (!session.passport || !session.passport.user) {
+    if (!session?.passport?.user) {
       return res
         .status(401)
         .json({ error: "Unauthorized: User not authenticated" });
@@ -41,7 +67,7 @@ const checkSession = async (req, res, next) => {
     req.user = session.passport.user;
     next();
   } catch (error) {
-    console.error("Error verifying session:", error);
+    console.error("Error verifying session:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
