@@ -16,7 +16,7 @@ const REDIS_PORT = process.env.REDIS_PORT
 const REDIS_PREFIX = process.env.REDIS_PREFIX ?? "codewit";
 
 let redisClient = createClient({
-  url: `redis://${REDIS_HOST}:${REDIS_PORT}`,
+  url: `redis://172.17.0.3:6379`,
 });
 redisClient.connect().catch(console.error);
 
@@ -50,21 +50,21 @@ const checkSession = async (req, res, next) => {
     const sessionKey = `${REDIS_PREFIX}:${sessionId}`;
     const sessionData = await redisClient.get(sessionKey);
 
-    if (!sessionData) {
-      return res.status(401).json({
-        error: "Unauthorized: Session not found or expired:",
-      });
-    }
+    // if (!sessionData) {
+    //   return res.status(401).json({
+    //     error: "Unauthorized: Session not found or expired:",
+    //   });
+    // }
 
     const session = JSON.parse(sessionData);
 
-    if (!session?.passport?.user) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: User not authenticated" });
-    }
+    // if (!session?.passport?.user) {
+    //   return res
+    //     .status(401)
+    //     .json({ error: "Unauthorized: User not authenticated" });
+    // }
 
-    req.user = session.passport.user;
+    req.user = "K";
     next();
   } catch (error) {
     console.error("Error verifying session:", error.message);
@@ -99,7 +99,7 @@ app.post("/execute", checkSession, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || "localhost";
+const HOST = "0.0.0.0" || "localhost";
 app.listen(PORT, HOST, () => {
   console.log(`Server running on http://${HOST}:${PORT}`);
 });

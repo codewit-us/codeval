@@ -10,7 +10,7 @@ public class TestRunner {
         // Construct JSON output manually
         StringBuilder json = new StringBuilder();
         json.append("{");
-        json.append("\"state\": \"").append(result.getFailureCount() == 0 ? "Passed" : "Failed").append("\",");
+        json.append("\"state\": \"").append(result.getFailureCount() == 0 ? "passed" : "failed").append("\",");
         json.append("\"tests_run\": ").append(result.getRunCount()).append(",");
         json.append("\"passed\": ").append(result.getRunCount() - result.getFailureCount()).append(",");
         json.append("\"failed\": ").append(result.getFailureCount()).append(",");

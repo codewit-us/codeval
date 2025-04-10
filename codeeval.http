@@ -1,10 +1,11 @@
+
 POST http://localhost:3000/execute
 Content-Type: application/json
 Cookie: connect.sid=suhvferkuhvikerv
 
 {
     "language": "cpp",
-    "code": "#include <iostream>\n\nint add(int a, int b) { return a + b; }\n\nint main() { std::cout << add(2, 3) << std::endl; return 0; }",
+    "code": "#include <iostream>\n\nint add(int a, int b) { return a + b; }\n\nint main() { std::cout << add(2, 1) << std::endl; return 0; }",
     "expectedOutput": "5\n",
     "runTests": false
 }
@@ -34,7 +35,7 @@ Cookie: connect.sid=suhvferkuhvikerv
     "language": "cpp",
     "code": "int add(int a, int b) { return a + b; }\n",                                  
     "runTests": true,
-    "testCode": "extern int add(int a, int b);\n#include <cxxtest/TestSuite.h>\n\nclass AddTestSuite : public CxxTest::TestSuite {\npublic:\n    void testAddPositiveNumbers() { TS_ASSERT_EQUALS(add(2, 3), 5); }\n    void testAddNegativeNumbers() { TS_ASSERT_EQUALS(add(-1, 1), 1); }\n};"
+    "testCode": "extern int add(int a, int b);\n#include <cxxtest/TestSuite.h>\n\nclass AddTestSuite : public CxxTest::TestSuite {\npublic:\n    void testAddPositiveNumbers() { TS_ASSERT_EQUALS(add(2, 3), 5); }\n    void testAddNegativeNumbers() { TS_ASSERT_EQUALS(add(-1, 1), 0); }\n};"
 }
 
 ###
