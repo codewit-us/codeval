@@ -124,13 +124,9 @@ async function generateCppTestRunner(uniqueDir) {
   const runnerExecutablePath = path.join(uniqueDir, 'runner');
   const mainCppPath = path.join(uniqueDir, 'program.cpp');
 
-  console.log('Generating CxxTest runner...');
   await compileCode('cxxtestgen', ['--error-printer', '-o', runnerCppPath, testHeaderPath], uniqueDir);
-  console.log(`CxxTest runner generated at ${runnerCppPath}`);
 
-  console.log('Compiling CxxTest runner with main program...');
   await compileCode('g++', ['-o', runnerExecutablePath, runnerCppPath, mainCppPath], uniqueDir);
-  console.log(`CxxTest runner executable created at ${runnerExecutablePath}`);
 }
 
 /**
@@ -190,7 +186,7 @@ async function handleTestSetup(language, uniqueDir, className, testCode) {
  * @param {string} output - The output from pytest.
  * @returns {object} - The test summary.
  */
-function parsePytestOutput(output) {
+function parsePytestOutput(output, stdout = '', stderr = '') {
   let total_tests = 0;
   let passed_tests = 0;
   let failed_tests = 0;
@@ -214,20 +210,24 @@ function parsePytestOutput(output) {
     }
   }
 
-  // Extract failure details from:
-  // "______________________________ test_add_negative _______________________________"
-  // "    def test_add_negative():"
-  // ">       assert add(-1, 1) == 1"
-  // "E       assert 0 == 1"
-  // "E        +  where 0 = add(-1, 1)"
-  const failureMatches = [...output.matchAll(/______________________________ (.*?) _______________________________\n\n.*?\n>.*?assert (.*?)\nE\s+assert (.*?)\nE\s+\+\s+where\s+(.*?)\s+=/gs)];
+  const failureBlocks = output.split(/={10,} FAILURES ={10,}/)[1]?.split(/={10,}/)[0] || '';
+
+  const matches = [...failureBlocks.matchAll(
+    /_{5,}\s*(.*?)\s*_{5,}[\s\S]*?>\s*assert\s+(.*?)\s*?\nE\s+assert\s+(.*?)\s*?(?:\nE\s+\+\s+where\s+(.*?)\s+=)?/g
+  )];
   
-  failureMatches.forEach((match) => {
+  matches.forEach((match, index) => {
+    const test_case = match[1]?.trim() || `Test ${index + 1}`;
+    const assertionLine = match[2]?.trim();
+    const failedExpr = match[3]?.trim();
+    const evaluated = match[4]?.trim() || '';
+  
     failures.push({
-      test_case: match[1].trim(),
-      expected: match[3].split("==")[1]?.trim() || match[3].trim(),
-      received: match[4].trim(),
-      error_message: "AssertionError: Expected and received values did not match.",
+      test_case,
+      expected: failedExpr.split('==')[1]?.trim() || '',
+      received: evaluated || failedExpr.split('==')[0]?.trim(),
+      error_message: `Assertion failed: ${assertionLine}`,
+      rawout: `${stdout}\n${stderr}`
     });
   });
 
@@ -239,7 +239,7 @@ function parsePytestOutput(output) {
   };
 }
 
-function parseCppTestOutput(output) {
+function parseCppTestOutput(output, stdout = '', stderr = '') {
   output = output.toString();
   let total_tests = 0;
   let passed_tests = 0;
@@ -272,6 +272,8 @@ function parseCppTestOutput(output) {
             expected: expectedExpr,
             received: receivedValue,
             error_message: "AssertionError: Output did not match expected result",
+            rawout: `${stdout}\n${stderr}`,
+            stderr,
         });
     });
 
@@ -303,8 +305,6 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     passed: 0,
     failed: 0,
     failure_details: [],
-    stdout: '',
-    stderr: '',
     compilation_error: '',
     runtime_error: '',
     execution_time_exceeded: false,
@@ -312,6 +312,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
   };
 
   try {
+
     // Write the main code to the source file
     const sourceFilePath = await writeCodeToFile(
       uniqueDir,
@@ -369,17 +370,20 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
         ];
         console.log(`Running JUnit tests: ${executionConfig.runCommand} ${executionConfig.runArgs.join(' ')}`);
       }
+      
+      // Run program with Test Cases 
       try {
         output = await runProgram(executionConfig.runCommand, executionConfig.runArgs, stdin);
       } catch (executionError) {
-        if (language.toLowerCase() === 'python') {
-          response.state = 'failed';
-          output = executionError.message;
-        } else {
-          response.state = 'runtime_error';
-        }
+        console.error("Python test execution failed:", executionError);
+        response.state = 'failed';
+        output = {
+          stdout: executionError.stdout || '',
+          stderr: executionError.stderr || '',
+        };
         response.runtime_error = executionError.message;
       }
+
     } else {
       // Run the main program
       console.log(`Executing program: ${executionConfig.runCommand} ${executionConfig.runArgs.join(' ')}`);
@@ -394,13 +398,12 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
         response.runtime_error = executionError.message;
         return response;
       }
-      response.stdout = output;
     }
 
     // Determine success based on output
     if (runTests && testCode) {
       if (language.toLowerCase() === 'python') {
-        const testResults = parsePytestOutput(output);
+        const testResults = parsePytestOutput(output.stdout, output.stdout, output.stderr);
         response.tests_run = testResults.tests_run;
         response.passed = testResults.passed;
         response.failed = testResults.failed;
@@ -412,7 +415,6 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
         if (language.toLowerCase() === 'cpp') {
             executionConfig.runCommand = path.join(uniqueDir, 'runner');
             executionConfig.runArgs = [];
-            console.log(`Running CxxTest runner: ${executionConfig.runCommand}`);
 
             try {
                 output = await runProgram(executionConfig.runCommand, executionConfig.runArgs, stdin);
@@ -423,7 +425,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
             }
 
 
-            const testResults = parseCppTestOutput(output);
+            const testResults = parseCppTestOutput(output.stdout || output, output.stdout, output.stderr);
             response.tests_run = testResults.tests_run;
             response.passed = testResults.passed;
             response.failed = testResults.failed;
@@ -433,15 +435,31 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
         }
 
       // For Java, parse JSON output from tests
-      const testResults = JSON.parse(output.trim());
+      const stdout = (output.stdout || output).toString();
+      
+      const jsonStart = stdout.indexOf('{');
+      const jsonEnd = stdout.lastIndexOf('}') + 1;
+      
+      if (jsonStart === -1 || jsonEnd === -1) {
+        console.error("Could not find valid JSON in Java test output");
+        throw new Error("Invalid JSON structure in Java test stdout");
+      }
+      
+      const jsonString = stdout.substring(jsonStart, jsonEnd);
+      
+      let testResults;
+      try {
+        testResults = JSON.parse(jsonString);
+      } catch (err) {
+        console.error("Failed to parse Java test JSON:", err.message);
+        throw new Error("Failed to parse JSON from Java test output");
+      }
       response = {
         state: testResults.state,
         tests_run: testResults.tests_run,
         passed: testResults.passed,
         failed: testResults.failed,
         failure_details: testResults.failure_details,
-        stdout: testResults.stdout || '',
-        stderr: testResults.stderr || '',
         compilation_error: response.compilation_error || '',
         runtime_error: response.runtime_error || '',
         execution_time_exceeded: testResults.execution_time_exceeded || false,
@@ -458,8 +476,9 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
         response.failure_details.push({
           test_case: 1,
           expected: expectedOutput,
-          received: response.stdout,
+          received: output.stdout,
           error_message: 'Output did not match expected output',
+          rawout: output.stdout + output.stderr
         });
       }
     }
@@ -551,10 +570,13 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
         finished = true;
         if (code !== 0) {
           console.error(`Execution failed with code: ${code}: stderr: ${stderr}, stdout: ${stdout}`);
-          return reject(new Error(`Execution failed with code ${code}: ${stderr}, stdout: ${stdout}`));
+          const error = new Error(`Execution failed with code ${code}`);
+          error.stdout = stdout;
+          error.stderr = stderr;
+          return reject(error);
         }
         console.log(`Execution succeeded for command: ${command} ${args.join(' ')}`);
-        resolve(stdout);
+        resolve({stdout, stderr});
       }
     });
 
