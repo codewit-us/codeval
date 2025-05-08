@@ -39,6 +39,11 @@
   - `expectedOutput` (String, optional): Expected output for validation.
   - `runTests` (Boolean, optional): Whether to run unit tests.
   - `testCode` (String, optional): Unit test code.
+  
+**Note:**
+
+For testing purposes, you can use the `codeeval.http` file in VS Code with this extension: [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client). (Don't forget to update the cookie for connect.sid in headers.)
+
 
 ### Example `curl` Requests
 

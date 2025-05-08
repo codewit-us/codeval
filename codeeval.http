@@ -1,0 +1,69 @@
+
+POST http://localhost:3000/execute
+Content-Type: application/json
+Cookie: connect.sid=suhvferkuhvikerv
+
+{
+    "language": "cpp",
+    "code": "#include <iostream>\n\nint add(int a, int b) { return a + b; }\n\nint main() { std::cout << add(2, 1) << std::endl; return 0; }",
+    "expectedOutput": "5\n",
+    "runTests": false
+}
+
+###
+
+POST http://localhost:3000/execute
+Content-Type: application/json
+Cookie: connect.sid=suhvferkuhvikerv
+
+{
+    "language": "java",
+    "code": "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}",
+    "stdin": "",
+    "expectedOutput": "Hello, World!\n",
+    "runTests": false,
+    "testCode": ""
+}
+
+###
+
+POST http://localhost:3000/execute
+Content-Type: application/json
+Cookie: connect.sid=suhvferkuhvikerv
+
+{
+    "language": "cpp",
+    "code": "int add(int a, int b) { return a + b; }\n",                                  
+    "runTests": true,
+    "testCode": "extern int add(int a, int b);\n#include <cxxtest/TestSuite.h>\n\nclass AddTestSuite : public CxxTest::TestSuite {\npublic:\n    void testAddPositiveNumbers() { TS_ASSERT_EQUALS(add(2, 3), 5); }\n    void testAddNegativeNumbers() { TS_ASSERT_EQUALS(add(-1, 1), 0); }\n};"
+}
+
+###
+
+POST http://localhost:3000/execute
+Content-Type: application/json
+Cookie: connect.sid=suhvferkuhvikerv
+
+{
+    "language": "java",
+    "code": "public class Main {\n    public int add(int a, int b) {\n        return a + b;\n    }\n}",
+    "stdin": "",
+    "expectedOutput": "",
+    "runTests": true,
+    "testCode": "import org.junit.Test;\nimport static org.junit.Assert.*;\n\npublic class MainTest {\n    @Test\n    public void testAdd() {\n        Main main = new Main();\n        assertEquals(5, main.add(2, 3));\n        assertEquals(0, main.add(-1, 1));\n    }\n}"
+}
+
+
+###
+POST http://localhost:3000/execute
+Content-Type: application/json
+Cookie: connect.sid=suhvferkuhvikerv
+
+{
+    "language": "python",
+    "code": "def add(a, b):\n    return a + b\n\nif __name__ == \"__main__\":\n    print(add(2, 3))",
+    "stdin": "",
+    "expectedOutput": "",
+    "runTests": true,
+    "testCode": "import pytest\nfrom program import add\n\ndef test_add():\n    assert add(2, 3) == 5\n\ndef test_add_negative():\n    assert add(-1, 1) == 1\n"
+}
