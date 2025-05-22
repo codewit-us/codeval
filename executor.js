@@ -335,7 +335,8 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     // If tests are to be run, handle test scripts
     if (runTests && testCode) {
       try {
-        await handleTestSetup(language, uniqueDir, executionConfig.className, testCode);
+        const decodedTestCode = JSON.parse(`"${testCode}"`);
+        await handleTestSetup(language, uniqueDir, executionConfig.className, decodedTestCode);
       } catch (compilationError) {
         response.state = 'compile_error';
         response.compilation_error = compilationError.message;
