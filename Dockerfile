@@ -31,6 +31,9 @@ COPY . .
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk
 ENV PATH=$JAVA_HOME/bin:/opt/cxxtest/bin:$PATH
 
-EXPOSE 3000 9229
+EXPOSE 3000
 
-CMD ["node", "--inspect=0.0.0.0:9229", "server.js"]
+COPY wait-for-redis.sh /usr/src/app/wait-for-redis.sh
+RUN chmod +x /usr/src/app/wait-for-redis.sh
+
+CMD ["sh", "wait-for-redis.sh", "redis", "node", "server.js"]
