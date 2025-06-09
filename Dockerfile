@@ -2,6 +2,7 @@ FROM node:16-alpine
 
 RUN apk update && apk add --no-cache \
     g++ \
+    git \
     openjdk11 \
     python3 \
     py3-pip \

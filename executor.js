@@ -1,7 +1,43 @@
-const { spawn } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
+
+/**
+ * Ensures the datasets repo is cloned or updated in the unique directory.
+ * @param {string} uniqueDir - The temp directory where datasets should be cloned.
+ */
+async function ensureDatasetsRepo(uniqueDir) {
+  const datasetsPath = path.join(uniqueDir, 'datasets');
+  const repoUrl = 'https://github.com/codewit-us/datasets.git';
+
+  try {
+    await fs.access(datasetsPath);
+    console.log('Datasets folder exists. Pulling latest changes...');
+    await runShellCommand('git pull', { cwd: datasetsPath });
+  } catch (err) {
+    console.log('Datasets folder does not exist. Cloning repo...');
+    await runShellCommand(`git clone ${repoUrl} datasets`, { cwd: uniqueDir });
+  }
+}
+
+/**
+ * Runs a shell command in a specific directory.
+ * @param {string} command - The command to run.
+ * @param {object} options - Options for the child process (e.g., cwd).
+ */
+function runShellCommand(command, options = {}) {
+  return new Promise((resolve, reject) => {
+    const process = exec(command, options, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Shell command error: ${stderr}`);
+        return reject(new Error(stderr));
+      }
+      console.log(`Shell command output: ${stdout}`);
+      resolve(stdout);
+    });
+  });
+}
 
 /**
  * Extracts the public class name from Java code.
@@ -312,6 +348,7 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
  */
 async function executeCode(language, code, stdin, expectedOutput, runTests = false, testCode = '') {
   const uniqueDir = await createUniqueDirectory();
+  await ensureDatasetsRepo(uniqueDir);
   const executionConfig = configureExecution(language, code, uniqueDir);
 
   let response = {
