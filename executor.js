@@ -164,11 +164,15 @@ ${testCode}
       break;
 
     case 'java':
-      await fs.writeFile(path.join(uniqueDir, `${className}Test.java`), testCode);
-      await fs.copyFile(
+      const testClassName = extractClassName(testCode);
+      await fs.writeFile(path.join(uniqueDir, `${testClassName}.java`), testCode);
+      const runnerTemplate = await fs.readFile(
         path.join(__dirname, 'TestRunner.java'),
-        path.join(uniqueDir, 'TestRunner.java')
+        'utf-8'
       );
+      const runnerFinalCode = runnerTemplate.replace(/MainTest/g, testClassName);
+      await fs.writeFile(path.join(uniqueDir, 'TestRunner.java'), runnerFinalCode);
+      
       const testRunnerPath = path.join(uniqueDir, 'TestRunner.java');
       try {
         await compileCode(
@@ -181,7 +185,7 @@ ${testCode}
               path.delimiter +
               uniqueDir,
             path.join(uniqueDir, `${className}.java`),
-            path.join(uniqueDir, `${className}Test.java`),
+            path.join(uniqueDir, `${testClassName}.java`),
             testRunnerPath,
           ],
           uniqueDir
