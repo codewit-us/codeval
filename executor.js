@@ -94,6 +94,11 @@ async function writeCodeToFile(uniqueDir, extension, code, className = null) {
   return filePath;
 }
 
+/**
+ * Handles compilation for languages that require it.
+ * @param {object} config - The execution configuration.
+ * @param {string} uniqueDir - The temporary directory.
+ */
 async function compilationHandler(config, uniqueDir) {
   if (config.compileCommand === 'g++') {
     await compileCode(
