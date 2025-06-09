@@ -130,6 +130,7 @@ async function generateCppTestRunner(uniqueDir) {
   await compileCode('g++', ['-o', runnerExecutablePath, runnerCppPath, mainCppPath], uniqueDir);
 }
 
+
 function extractFunctionDeclarations(cppCode) {
   // Regular expression to match typical C++ function signatures
   const regex = /\b(?:int|bool|void|float|double|string|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)\s*(?=\{)/g;
@@ -141,6 +142,13 @@ function extractFunctionDeclarations(cppCode) {
   return matches.map(fn => fn.trim() + ';').join('\n');
 }
 
+/**
+ * Sets up the testing environment based on language.
+ * @param {string} language - The programming language.
+ * @param {string} uniqueDir - The temporary directory.
+ * @param {string} className - The class name for Java.
+ * @param {string} testCode - The test code.
+ */
 async function handleTestSetup(language, uniqueDir, className, testCode) {
   switch (language.toLowerCase()) {
     case 'python':
