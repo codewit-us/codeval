@@ -324,9 +324,6 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
  * @returns {Promise<object>} - The execution result.
  */
 async function executeCode(language, code, stdin, expectedOutput, runTests = false, testCode = '') {
-  const uniqueDir = await createUniqueDirectory();
-  const executionConfig = configureExecution(language, code, uniqueDir);
-
   let response = {
     state: 'execution_error',
     tests_run: 0,
@@ -338,6 +335,15 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     execution_time_exceeded: false,
     memory_exceeded: false,
   };
+  
+  if (language.toLowerCase() === 'cpp' && process.env.ENABLE_CPP !== 'true') {
+    console.log('C++ execution is disabled.');
+    response.state = 'execution_blocked';
+    response.runtime_error = 'C++ execution is disabled';
+    return response;
+  }
+  const uniqueDir = await createUniqueDirectory();
+  const executionConfig = configureExecution(language, code, uniqueDir);
 
   try {
     const sourceFilePath = await writeCodeToFile(
