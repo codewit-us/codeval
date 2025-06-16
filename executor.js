@@ -9,7 +9,6 @@ const { v4: uuidv4 } = require('uuid');
  */
 async function ensureDatasetsRepo(uniqueDir) {
   const datasetsPath = path.join(uniqueDir, 'datasets');
-  const repoUrl = 'https://github.com/codewit-us/datasets.git';
 
   try {
     await fs.access(datasetsPath);
@@ -17,7 +16,7 @@ async function ensureDatasetsRepo(uniqueDir) {
     await runShellCommand('git pull', { cwd: datasetsPath });
   } catch (err) {
     console.log('Datasets folder does not exist. Cloning repo...');
-    await runShellCommand(`git clone ${repoUrl} datasets`, { cwd: uniqueDir });
+    await runShellCommand(`git clone https://github.com/codewit-us/datasets.git datasets`, { cwd: uniqueDir });
   }
 }
 
