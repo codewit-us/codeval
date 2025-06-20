@@ -1,7 +1,42 @@
-const { spawn } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
+
+/**
+ * Ensures the datasets repo is cloned or updated in the unique directory.
+ * @param {string} uniqueDir - The temp directory where datasets should be cloned.
+ */
+async function ensureDatasetsRepo(uniqueDir) {
+  const datasetsPath = path.join(uniqueDir, 'datasets');
+
+  try {
+    await fs.access(datasetsPath);
+    console.log('Datasets folder exists. Pulling latest changes...');
+    await runShellCommand('git pull', { cwd: datasetsPath });
+  } catch (err) {
+    console.log('Datasets folder does not exist. Cloning repo...');
+    await runShellCommand(`git clone https://github.com/codewit-us/datasets.git datasets`, { cwd: uniqueDir });
+  }
+}
+
+/**
+ * Runs a shell command in a specific directory.
+ * @param {string} command - The command to run.
+ * @param {object} options - Options for the child process (e.g., cwd).
+ */
+function runShellCommand(command, options = {}) {
+  return new Promise((resolve, reject) => {
+    const process = exec(command, options, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Shell command error: ${stderr}`);
+        return reject(new Error(stderr));
+      }
+      console.log(`Shell command output: ${stdout}`);
+      resolve(stdout);
+    });
+  });
+}
 
 /**
  * Extracts the public class name from Java code.
@@ -94,11 +129,6 @@ async function writeCodeToFile(uniqueDir, extension, code, className = null) {
   return filePath;
 }
 
-/**
- * Handles compilation for languages that require it.
- * @param {object} config - The execution configuration.
- * @param {string} uniqueDir - The temporary directory.
- */
 async function compilationHandler(config, uniqueDir) {
   if (config.compileCommand === 'g++') {
     await compileCode(
@@ -129,7 +159,6 @@ async function generateCppTestRunner(uniqueDir) {
   await compileCode('cxxtestgen', ['--error-printer', '-o', runnerCppPath, testHeaderPath], uniqueDir);
   await compileCode('g++', ['-o', runnerExecutablePath, runnerCppPath, mainCppPath], uniqueDir);
 }
-
 
 function extractFunctionDeclarations(cppCode) {
   // Regular expression to match typical C++ function signatures
@@ -343,6 +372,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     return response;
   }
   const uniqueDir = await createUniqueDirectory();
+  await ensureDatasetsRepo(uniqueDir);
   const executionConfig = configureExecution(language, code, uniqueDir);
 
   try {
