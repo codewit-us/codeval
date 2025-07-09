@@ -221,9 +221,7 @@ ${testCode}
           'javac',
           [
             '-cp',
-            path.join(__dirname, 'lib', 'junit-4.13.2.jar') +
-              path.delimiter +
-              path.join(__dirname, 'lib', 'hamcrest-core-1.3.jar') +
+            path.join(__dirname, 'lib', 'junit-platform-console-standalone-1.10.2.jar') +
               path.delimiter +
               uniqueDir,
             path.join(uniqueDir, `${className}.java`),
@@ -419,9 +417,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
           '-cp',
           uniqueDir +
             path.delimiter +
-            path.join(__dirname, 'lib', 'junit-4.13.2.jar') +
-            path.delimiter +
-            path.join(__dirname, 'lib', 'hamcrest-core-1.3.jar'),
+            path.join(__dirname, 'lib', 'junit-platform-console-standalone-1.10.2.jar'),
           'TestRunner',
         ];
       }
