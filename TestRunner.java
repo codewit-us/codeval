@@ -1,6 +1,8 @@
-import org.junit.runner.JUnitCore;
-import org.junit.runner.Result;
-import org.junit.runner.notification.Failure;
+import org.junit.platform.engine.discovery.DiscoverySelectors;
+import org.junit.platform.launcher.*;
+import org.junit.platform.launcher.core.*;
+
+import org.junit.platform.launcher.listeners.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -9,37 +11,51 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TestRunner {
+
+    private static String escapeForJson(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r");
+    }
     public static void main(String[] args) {
-        // Backup original streams
         PrintStream originalOut = System.out;
         PrintStream originalErr = System.err;
 
-        // Capture output
         ByteArrayOutputStream testOut = new ByteArrayOutputStream();
         ByteArrayOutputStream testErr = new ByteArrayOutputStream();
         System.setOut(new PrintStream(testOut));
         System.setErr(new PrintStream(testErr));
 
-        Result result = JUnitCore.runClasses(MainTest.class);
+        LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder.request()
+            .selectors(DiscoverySelectors.selectClass(MainTest.class))
+            .build();
 
-        // Restore original output
+        SummaryGeneratingListener listener = new SummaryGeneratingListener();
+        Launcher launcher = LauncherFactory.create();
+        launcher.registerTestExecutionListeners(listener);
+        launcher.execute(request);
+
+        TestExecutionSummary summary = listener.getSummary();
+
+        // Restore output
         System.setOut(originalOut);
         System.setErr(originalErr);
 
-        // Construct JSON output manually
         StringBuilder json = new StringBuilder();
         json.append("{");
-        json.append("\"state\": \"").append(result.getFailureCount() == 0 ? "passed" : "failed").append("\",");
-        json.append("\"tests_run\": ").append(result.getRunCount()).append(",");
-        json.append("\"passed\": ").append(result.getRunCount() - result.getFailureCount()).append(",");
-        json.append("\"failed\": ").append(result.getFailureCount()).append(",");
+        json.append("\"state\": \"").append(summary.getTotalFailureCount() == 0 ? "passed" : "failed").append("\",");
+        json.append("\"tests_run\": ").append(summary.getTestsStartedCount()).append(",");
+        json.append("\"passed\": ").append(summary.getTestsSucceededCount()).append(",");
+        json.append("\"failed\": ").append(summary.getTotalFailureCount()).append(",");
         json.append("\"failure_details\": [");
 
         boolean first = true;
-        for (Failure failure : result.getFailures()) {
+        for (TestExecutionSummary.Failure failure : summary.getFailures()) {
             if (!first) json.append(",");
-            
-            String message = failure.getMessage() != null ? failure.getMessage() : "";
+            String rawout = testOut.toString() + testErr.toString();
+            String message = failure.getException().getMessage() != null ? failure.getException().getMessage() : "";
             String expected = "";
             String received = "";
 
@@ -58,12 +74,11 @@ public class TestRunner {
             }
 
             json.append("{");
-            json.append("\"test_case\": \"").append(failure.getTestHeader()).append("\",");
-            json.append("\"expected\": \"").append(expected.replace("\"", "\\\"")).append("\",");
-            json.append("\"received\": \"").append(received.replace("\"", "\\\"")).append("\",");
-            json.append("\"error_message\": \"").append(failure.getMessage().replace("\"", "\\\"")).append("\",");
-            String rawout = testOut.toString() + testErr.toString();
-            json.append("\"rawout\": \"").append(rawout.replace("\"", "\\\"").replace("\n", "\\n")).append("\"");
+            json.append("\"test_case\": \"").append(failure.getTestIdentifier().getDisplayName()).append("\",");
+            json.append("\"expected\": \"").append(escapeForJson(expected)).append("\",");
+            json.append("\"received\": \"").append(escapeForJson(received)).append("\",");
+            json.append("\"error_message\": \"").append(escapeForJson(message)).append("\",");
+            json.append("\"rawout\": \"").append(escapeForJson(rawout)).append("\"");
             json.append("}");
             first = false;
         }
