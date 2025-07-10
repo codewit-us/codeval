@@ -11,6 +11,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class TestRunner {
+
+    private static String escapeForJson(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r");
+    }
     public static void main(String[] args) {
         PrintStream originalOut = System.out;
         PrintStream originalErr = System.err;
@@ -67,10 +75,10 @@ public class TestRunner {
 
             json.append("{");
             json.append("\"test_case\": \"").append(failure.getTestIdentifier().getDisplayName()).append("\",");
-            json.append("\"expected\": \"").append(expected.replace("\"", "\\\"")).append("\",");
-            json.append("\"received\": \"").append(received.replace("\"", "\\\"")).append("\",");
-            json.append("\"error_message\": \"").append(message.replace("\"", "\\\"")).append("\",");
-            json.append("\"rawout\": \"").append(rawout.replace("\"", "\\\"").replace("\n", "\\n")).append("\"");
+            json.append("\"expected\": \"").append(escapeForJson(expected)).append("\",");
+            json.append("\"received\": \"").append(escapeForJson(received)).append("\",");
+            json.append("\"error_message\": \"").append(escapeForJson(message)).append("\",");
+            json.append("\"rawout\": \"").append(escapeForJson(rawout)).append("\"");
             json.append("}");
             first = false;
         }
