@@ -39,4 +39,4 @@ EXPOSE 3000
 COPY wait-for-redis.sh /usr/src/app/wait-for-redis.sh
 RUN chmod +x /usr/src/app/wait-for-redis.sh
 
-CMD ["sh", "wait-for-redis.sh", "redis", "node", "server.js"]
+CMD ["node", "server.js"]
