@@ -15,10 +15,10 @@ const REDIS_PORT = process.env.REDIS_PORT
   : 6379;
 const REDIS_PREFIX = process.env.REDIS_PREFIX ?? "codewit";
 
-let redisClient = createClient({
-  url: `redis://${REDIS_HOST}:${REDIS_PORT}`,
-});
-redisClient.connect().catch(console.error);
+// let redisClient = createClient({
+//   url: `redis://${REDIS_HOST}:${REDIS_PORT}`,
+// });
+// redisClient.connect().catch(console.error);
 
 const decodeURIComponentSafe = (str) => {
   try {
@@ -41,30 +41,30 @@ const checkSession = async (req, res, next) => {
       ? decodedCookie.substring(2).split(".")[0]
       : decodedCookie.split(".")[0];
 
-    if (!sessionId) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: Invalid session ID: " });
-    }
+    // if (!sessionId) {
+    //   return res
+    //     .status(401)
+    //     .json({ error: "Unauthorized: Invalid session ID: " });
+    // }
 
-    const sessionKey = `${REDIS_PREFIX}:${sessionId}`;
-    const sessionData = await redisClient.get(sessionKey);
+    // const sessionKey = `${REDIS_PREFIX}:${sessionId}`;
+    // const sessionData = await redisClient.get(sessionKey);
 
-    if (!sessionData) {
-      return res.status(401).json({
-        error: "Unauthorized: Session not found or expired:",
-      });
-    }
+    // if (!sessionData) {
+    //   return res.status(401).json({
+    //     error: "Unauthorized: Session not found or expired:",
+    //   });
+    // }
 
     const session = JSON.parse(sessionData);
 
-    if (!session?.passport?.user) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: User not authenticated" });
-    }
+    // if (!session?.passport?.user) {
+    //   return res
+    //     .status(401)
+    //     .json({ error: "Unauthorized: User not authenticated" });
+    // }
 
-    req.user = session.passport.user;
+    req.user = "K";
     next();
   } catch (error) {
     console.error("Error verifying session:", error.message);
@@ -72,7 +72,7 @@ const checkSession = async (req, res, next) => {
   }
 };
 
-app.post("/execute", checkSession, async (req, res) => {
+app.post("/execute", async (req, res) => {
   const { language, code, stdin, expectedOutput, runTests, testCode } =
     req.body;
 
@@ -99,7 +99,7 @@ app.post("/execute", checkSession, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || "localhost";
+const HOST = "0.0.0.0";
 app.listen(PORT, HOST, () => {
   console.log(`Server running on http://${HOST}:${PORT}`);
 });

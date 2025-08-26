@@ -1,0 +1,52 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main", "feature/CICD"]
+
+concurrency:
+  group: cicd-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      REGISTRY: ${{ secrets.REGISTRY_NAME }}
+      CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
+      IMAGE_NAME: codeval
+      DOCKERFILE: Dockerfile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry (short-lived)
+        run: doctl registry login --expiry-seconds 1200
+
+      # Compute a readable tag with DATE + branch + run number
+      - name: Compute image tag and namespace
+        id: meta
+        shell: bash
+        run: |
+          DATE=$(date +'%m%d%Y')
+          SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9.-' '-')
+          TAG="${SAFE_BRANCH}-${DATE}-r${{ github.run_number }}"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "namespace=$SAFE_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: |
+          docker build \
+            -f "${{ env.DOCKERFILE }}" \
+            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}" .
+
+      - name: Push image
+        run: docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}"
