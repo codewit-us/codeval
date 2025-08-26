@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: ["main", "feature/CICD"]
+    branches: ["main", "staging", "feature/CICD"]
 
 concurrency:
   group: cicd-${{ github.ref_name }}
@@ -54,11 +54,11 @@ jobs:
       - name: Push image
         run: docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}"
 
-      # - name: Tag on GitHub for backup (optional)
-      #   if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
-      #   run: |
-      #     git tag "${{ matrix.image_name }}-${{ steps.meta.outputs.tag }}" || true
-      #     git push origin "${{ matrix.image_name }}-${{ steps.meta.outputs.tag }}" || true
+      - name: Tag on GitHub for backup
+        if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/CICD'
+        run: |
+          git tag "${{ steps.meta.outputs.tag }}"
+          git push origin "${{ steps.meta.outputs.tag }}"
 
       - name: Save kubeconfig with short-lived credentials
         run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 "${{ env.CLUSTER_NAME }}"
