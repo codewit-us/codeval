@@ -36,7 +36,4 @@ ENV PATH=$JAVA_HOME/bin:/opt/cxxtest/bin:$PATH
 
 EXPOSE 3000
 
-COPY wait-for-redis.sh /usr/src/app/wait-for-redis.sh
-RUN chmod +x /usr/src/app/wait-for-redis.sh
-
 CMD ["node", "server.js"]
