@@ -4,6 +4,10 @@ on:
   push:
     branches: ["main", "staging", "feature/CICD"]
 
+permissions:
+  contents: write
+  packages: write
+
 concurrency:
   group: cicd-${{ github.ref_name }}
   cancel-in-progress: false
@@ -24,6 +28,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
