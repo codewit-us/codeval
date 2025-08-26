@@ -17,6 +17,9 @@ jobs:
       CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
       IMAGE_NAME: codeval
       DOCKERFILE: Dockerfile
+      K8S_NAMESPACE: default
+      DEPLOYMENT_NAME: codeeval
+      CONTAINER_NAME: codeeval
 
     steps:
       - name: Checkout code
@@ -50,3 +53,19 @@ jobs:
 
       - name: Push image
         run: docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}"
+
+      # - name: Tag on GitHub for backup (optional)
+      #   if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
+      #   run: |
+      #     git tag "${{ matrix.image_name }}-${{ steps.meta.outputs.tag }}" || true
+      #     git push origin "${{ matrix.image_name }}-${{ steps.meta.outputs.tag }}" || true
+
+      - name: Save kubeconfig with short-lived credentials
+        run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 "${{ env.CLUSTER_NAME }}"
+
+      - name: Set image in Kubernetes
+        run: |
+          kubectl -n "${{ env.K8S_NAMESPACE }}" set image deployment/${{ env.DEPLOYMENT_NAME }} \
+            ${{ env.CONTAINER_NAME }}=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }} \
+            --record
+          kubectl -n "${{ env.K8S_NAMESPACE }}" rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=120s
