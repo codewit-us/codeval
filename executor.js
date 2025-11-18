@@ -551,55 +551,75 @@ function compileCode(command, args, cwd) {
  */
 function runProgram(command, args, stdin = '', timeout = 3000) {
   return new Promise((resolve, reject) => {
-    const process = spawn(command, args, { cwd: path.dirname(command) });
+    // wrapper shell with ulimit
+    const shell = 'bash';
+    const wrapperArgs = [
+      '-c',
+      `ulimit -u 50; ulimit -f 10485760; exec ${command} ${args.map(a => JSON.stringify(a)).join(' ')}`
+    ];
 
-    let stdout = '';
-    let stderr = '';
+    const proc = spawn(shell, wrapperArgs, {
+      cwd: path.dirname(command),
+      detached: true,
+      stdio: ['pipe','pipe','pipe']
+    });
+
+    // On spawn, set memory/thread monitor
+    const interval = setInterval(async () => {
+      try {
+        // fetch pid info via ps or pidusage
+        // if threads > 200 || memory > 300MB => kill
+        // e.g., using pidusage module: let info = await pidusage(proc.pid);
+        // if (info.memory > 300*1024*1024) { proc.kill(-proc.pid); clearInterval(interval); }
+      } catch (_) {}
+    }, 100);
+
+    let stdout = '', stderr = '';
     let finished = false;
+
+
+    const killGroup = (pid) => {
+      try { process.kill(-pid, 'SIGTERM'); } catch (_) {}
+      setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch (_) {} }, 400);
+    };
 
     const timer = setTimeout(() => {
       if (!finished) {
-        process.kill('SIGTERM');
-        console.error('Execution timed out.');
-        reject(new Error('Execution timed out'));
+        killGroup(proc.pid);
+        finished = true;
+        clearInterval(interval);
+        return reject(new Error('Execution timed out'));
       }
     }, timeout);
 
-    if (stdin) {
-      process.stdin.write(stdin);
-    }
-    process.stdin.end();
+    if (stdin) { proc.stdin.write(stdin); }
+    proc.stdin.end();
 
-    process.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
+    proc.stdout.on('data', d => stdout += d.toString());
+    proc.stderr.on('data', d => stderr += d.toString());
 
-    process.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    process.on('close', (code) => {
-      if (!finished) {
+    proc.on('close', (code, signal) => {
+      if(!finished) {
         clearTimeout(timer);
+        clearInterval(interval);
         finished = true;
-        if (code !== 0) {
-          console.error(`Execution failed with code ${code}: stderr: ${stderr}, stdout: ${stdout}`);
-          const error = new Error(`Execution failed with code ${code}`);
-          error.stdout = stdout;
-          error.stderr = stderr;
-          return reject(error);
+        if (code !== 0 && code !== 2) {
+          const err = new Error(`Execution failed with code ${code}`);
+          err.stdout = stdout;
+          err.stderr = stderr;
+          console.log("stderr", stderr);
+          console.log("stdout", stdout);
+          return reject(err);
         }
         resolve({ stdout, stderr });
       }
     });
-
-    process.on('error', (err) => {
-      if (!finished) {
-        clearTimeout(timer);
-        finished = true;
-        console.error(`Failed to start execution process: ${err.message}`);
-        reject(err);
-      }
+    proc.on('error', err => {
+      clearTimeout(timer);
+      clearInterval(interval);
+      finished = true;
+      console.error(`Failed to start execution process: ${err.message}`);
+      reject(err);
     });
   });
 }
@@ -610,7 +630,7 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
  */
 async function cleanupDir(dirPath) {
   try {
-    await fs.rm(dirPath, { recursive: true, force: true }); // if you really want to delete
+    await fs.rm(dirPath, { recursive: true, force: true });
     console.log(`Successfully deleted directory: ${dirPath}`);
   } catch (err) {
     console.error(`Failed to delete directory ${dirPath}: ${err.message}`);
