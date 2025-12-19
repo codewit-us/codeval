@@ -551,12 +551,19 @@ function compileCode(command, args, cwd) {
  */
 function runProgram(command, args, stdin = '', timeout = 3000) {
   return new Promise((resolve, reject) => {
-    // wrapper shell with ulimit
     const shell = 'bash';
     const wrapperArgs = [
       '-c',
-      `ulimit -u 50; ulimit -f 10485760; exec ${command} ${args.map(a => JSON.stringify(a)).join(' ')}`
+      `ulimit -u 50; ulimit -f 20480; exec "$@"`,
+      'cmd',
+      command,
+      ...args
     ];
+
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+    let killedByEvaluator = false;
 
     const proc = spawn(shell, wrapperArgs, {
       cwd: path.dirname(command),
@@ -564,21 +571,21 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
       stdio: ['pipe','pipe','pipe']
     });
 
-    // On spawn, set memory/thread monitor
+    // Resource monitor (memory/threads)
     const interval = setInterval(async () => {
       try {
-        // fetch pid info via ps or pidusage
-        // if threads > 200 || memory > 300MB => kill
-        // e.g., using pidusage module: let info = await pidusage(proc.pid);
-        // if (info.memory > 300*1024*1024) { proc.kill(-proc.pid); clearInterval(interval); }
+        // Example: use pidusage or ps to get memory/threads
+        // let info = await pidusage(proc.pid);
+        // if (info.memory > 300 * 1024 * 1024 || info.threadCount > 200) {
+        //   killedByEvaluator = true;
+        //   killGroup(proc.pid);
+        //   clearInterval(interval);
+        // }
       } catch (_) {}
     }, 100);
 
-    let stdout = '', stderr = '';
-    let finished = false;
-
-
     const killGroup = (pid) => {
+      killedByEvaluator = true;
       try { process.kill(-pid, 'SIGTERM'); } catch (_) {}
       setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch (_) {} }, 400);
     };
@@ -586,40 +593,55 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
     const timer = setTimeout(() => {
       if (!finished) {
         killGroup(proc.pid);
-        finished = true;
         clearInterval(interval);
+        finished = true;
         return reject(new Error('Execution timed out'));
       }
     }, timeout);
 
-    if (stdin) { proc.stdin.write(stdin); }
+    if (stdin) {
+      proc.stdin.write(stdin);
+    }
     proc.stdin.end();
 
     proc.stdout.on('data', d => stdout += d.toString());
     proc.stderr.on('data', d => stderr += d.toString());
 
     proc.on('close', (code, signal) => {
-      if(!finished) {
-        clearTimeout(timer);
-        clearInterval(interval);
-        finished = true;
-        if (code !== 0 && code !== 2) {
-          const err = new Error(`Execution failed with code ${code}`);
-          err.stdout = stdout;
-          err.stderr = stderr;
-          console.log("stderr", stderr);
-          console.log("stdout", stdout);
-          return reject(err);
-        }
-        resolve({ stdout, stderr });
-      }
-    });
-    proc.on('error', err => {
+      if (finished) return;
+
       clearTimeout(timer);
       clearInterval(interval);
       finished = true;
-      console.error(`Failed to start execution process: ${err.message}`);
-      reject(err);
+
+      // If killed via signal (timeout/resource limits)
+      if (signal || killedByEvaluator) {
+        const reason = signal
+          ? `terminated by signal ${signal}`
+          : 'terminated by evaluator';
+        const err = new Error(`Execution terminated: ${reason}`);
+        err.stdout = stdout;
+        err.stderr = stderr;
+        return reject(err);
+      }
+
+      // Normal exit code check
+      if (code !== 0) {
+        const err = new Error(`Execution failed with code ${code}`);
+        err.stdout = stdout;
+        err.stderr = stderr;
+        return reject(err);
+      }
+
+      resolve({ stdout, stderr });
+    });
+
+    proc.on('error', err => {
+      if (finished) return;
+      clearTimeout(timer);
+      clearInterval(interval);
+      finished = true;
+      reject(new Error(`Failed to start process: ${err.message}`));
     });
   });
 }
