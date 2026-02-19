@@ -157,7 +157,7 @@ async function generateCppTestRunner(uniqueDir) {
   const mainCppPath = path.join(uniqueDir, 'program.cpp');
 
   await compileCode('cxxtestgen', ['--error-printer', '-o', runnerCppPath, testHeaderPath], uniqueDir);
-  await compileCode('g++', ['-o', runnerExecutablePath, runnerCppPath, mainCppPath], uniqueDir);
+  await compileCode('g++', ['-std=c++20', '-o', runnerExecutablePath, runnerCppPath], uniqueDir);
 }
 
 function extractFunctionDeclarations(cppCode) {
