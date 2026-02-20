@@ -154,7 +154,6 @@ async function generateCppTestRunner(uniqueDir) {
   const testHeaderPath = path.join(uniqueDir, 'test_program.h');
   const runnerCppPath = path.join(uniqueDir, 'runner.cpp');
   const runnerExecutablePath = path.join(uniqueDir, 'runner');
-  const mainCppPath = path.join(uniqueDir, 'program.cpp');
 
   await compileCode('cxxtestgen', ['--error-printer', '-o', runnerCppPath, testHeaderPath], uniqueDir);
   await compileCode('g++', ['-std=c++20', '-o', runnerExecutablePath, runnerCppPath], uniqueDir);
