@@ -578,7 +578,7 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
     let killedByEvaluator = false;
 
     const proc = spawn(shell, wrapperArgs, {
-      cwd: workingDir || process.cwd(),   // ✅ FIXED HERE
+      cwd: workingDir || process.cwd(),   // Set working directory
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe']
     });
