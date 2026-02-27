@@ -423,7 +423,13 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       }
 
       try {
-        output = await runProgram(executionConfig.runCommand, executionConfig.runArgs, stdin);
+        output = await runProgram(
+  executionConfig.runCommand,
+  executionConfig.runArgs,
+  stdin,
+  3000,
+  uniqueDir
+);
       } catch (executionError) {
         console.error('Test execution failed:', executionError);
         response.state = 'failed';
@@ -435,7 +441,13 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       }
     } else {
       try {
-        output = await runProgram(executionConfig.runCommand, executionConfig.runArgs, stdin);
+        output = await runProgram(
+  executionConfig.runCommand,
+  executionConfig.runArgs,
+  stdin,
+  3000,
+  uniqueDir
+);
       } catch (executionError) {
         console.error('Program execution failed:', executionError);
         if (language.toLowerCase() === 'python') {
@@ -549,7 +561,7 @@ function compileCode(command, args, cwd) {
  * @param {number} [timeout=3000] - Timeout in milliseconds.
  * @returns {Promise<string>} - The program's stdout.
  */
-function runProgram(command, args, stdin = '', timeout = 3000) {
+function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null) {
   return new Promise((resolve, reject) => {
     const shell = 'bash';
     const wrapperArgs = [
@@ -566,23 +578,10 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
     let killedByEvaluator = false;
 
     const proc = spawn(shell, wrapperArgs, {
-      cwd: path.dirname(command),
+      cwd: workingDir || process.cwd(),   // ✅ FIXED HERE
       detached: true,
-      stdio: ['pipe','pipe','pipe']
+      stdio: ['pipe', 'pipe', 'pipe']
     });
-
-    // Resource monitor (memory/threads)
-    const interval = setInterval(async () => {
-      try {
-        // Example: use pidusage or ps to get memory/threads
-        // let info = await pidusage(proc.pid);
-        // if (info.memory > 300 * 1024 * 1024 || info.threadCount > 200) {
-        //   killedByEvaluator = true;
-        //   killGroup(proc.pid);
-        //   clearInterval(interval);
-        // }
-      } catch (_) {}
-    }, 100);
 
     const killGroup = (pid) => {
       killedByEvaluator = true;
@@ -593,7 +592,6 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
     const timer = setTimeout(() => {
       if (!finished) {
         killGroup(proc.pid);
-        clearInterval(interval);
         finished = true;
         return reject(new Error('Execution timed out'));
       }
@@ -611,10 +609,8 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
       if (finished) return;
 
       clearTimeout(timer);
-      clearInterval(interval);
       finished = true;
 
-      // If killed via signal (timeout/resource limits)
       if (signal || killedByEvaluator) {
         const reason = signal
           ? `terminated by signal ${signal}`
@@ -625,7 +621,6 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
         return reject(err);
       }
 
-      // Normal exit code check
       if (code !== 0) {
         const err = new Error(`Execution failed with code ${code}`);
         err.stdout = stdout;
@@ -639,13 +634,11 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
     proc.on('error', err => {
       if (finished) return;
       clearTimeout(timer);
-      clearInterval(interval);
       finished = true;
       reject(new Error(`Failed to start process: ${err.message}`));
     });
   });
 }
-
 /**
  * Cleans up the temporary directory.
  * @param {string} dirPath - The directory path to delete.
