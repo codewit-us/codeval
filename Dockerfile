@@ -21,7 +21,7 @@ WORKDIR /usr/src/app
 
 COPY package*.json ./
 
-RUN npm install && pip3 install --no-cache-dir pytest
+RUN npm install && pip3 install --no-cache-dir pytest pandas
 
 RUN mkdir lib
 
