@@ -20,6 +20,7 @@ FAILED test_program.py::test_hat_variables - AssertionError: there should be a v
       tests_run: 1,
       passed: 0,
       failed: 1,
+      errors: 0,
       messages: ['there should be a variable named exactly HatName'],
       expectedValues: [''],
       receivedValues: [''],
@@ -43,6 +44,7 @@ FAILED test_program.py::test_message - AssertionError: first instruction
       tests_run: 1,
       passed: 0,
       failed: 1,
+      errors: 0,
       messages: ['first instruction\nsecond instruction'],
       expectedValues: [''],
       receivedValues: [''],
@@ -67,6 +69,7 @@ FAILED test_program.py::test_value - AssertionError: assert 'actual' == 'expecte
       tests_run: 1,
       passed: 0,
       failed: 1,
+      errors: 0,
       messages: ["AssertionError: assert 'actual' == 'expected'\n  - expected\n  + actual"],
       expectedValues: ["'expected'"],
       receivedValues: ["'actual'"],
@@ -89,6 +92,7 @@ FAILED test_program.py::test_hat_variables - AttributeError: module 'program' ha
       tests_run: 1,
       passed: 0,
       failed: 1,
+      errors: 0,
       messages: ["AttributeError: module 'program' has no attribute 'HatName'"],
       expectedValues: [''],
       receivedValues: [''],
@@ -119,6 +123,7 @@ FAILED test_program.py::test_second - ValueError: second failure
       tests_run: 2,
       passed: 0,
       failed: 2,
+      errors: 0,
       messages: ['first failure', 'ValueError: second failure'],
       expectedValues: ['', ''],
       receivedValues: ['', ''],
@@ -136,9 +141,10 @@ ERROR test_program.py
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
 =============================== 1 error in 0.03s ===============================`,
     expected: {
-      tests_run: 1,
+      tests_run: 0,
       passed: 0,
-      failed: 1,
+      failed: 0,
+      errors: 1,
       messages: ["SyntaxError: '(' was never closed"],
       expectedValues: [''],
       receivedValues: [''],
@@ -168,9 +174,10 @@ FAILED test_program.py::test_value - AssertionError: assertion failure
 ERROR test_program.py::test_setup_error - RuntimeError: setup failure
 ===================== 1 passed, 1 failed, 1 error in 0.01s =====================`,
     expected: {
-      tests_run: 3,
+      tests_run: 2,
       passed: 1,
-      failed: 2,
+      failed: 1,
+      errors: 1,
       messages: ['assertion failure', 'RuntimeError: setup failure'],
       expectedValues: ['', ''],
       receivedValues: ['', ''],
@@ -188,6 +195,7 @@ test_program.py ..                                                       [100%]
       tests_run: 2,
       passed: 2,
       failed: 0,
+      errors: 0,
       messages: [],
       expectedValues: [],
       receivedValues: [],
@@ -196,12 +204,17 @@ test_program.py ..                                                       [100%]
 ];
 
 for (const testCase of testCases) {
-  const result = parsePytestOutput(testCase.output, testCase.output, '');
+  const result = parsePytestOutput(testCase.output);
 
   assert.strictEqual(result.tests_run, testCase.expected.tests_run, testCase.name);
   assert.strictEqual(result.passed, testCase.expected.passed, testCase.name);
   assert.strictEqual(result.failed, testCase.expected.failed, testCase.name);
-  assert.strictEqual(result.failure_details.length, testCase.expected.failed, testCase.name);
+  assert.strictEqual(result.errors, testCase.expected.errors, testCase.name);
+  assert.strictEqual(
+    result.failure_details.length,
+    testCase.expected.failed + testCase.expected.errors,
+    testCase.name
+  );
   assert.deepStrictEqual(
     result.failure_details.map((failure) => failure.error_message),
     testCase.expected.messages,

@@ -154,10 +154,9 @@ async function generateCppTestRunner(uniqueDir) {
   const testHeaderPath = path.join(uniqueDir, 'test_program.h');
   const runnerCppPath = path.join(uniqueDir, 'runner.cpp');
   const runnerExecutablePath = path.join(uniqueDir, 'runner');
-  const mainCppPath = path.join(uniqueDir, 'program.cpp');
 
   await compileCode('cxxtestgen', ['--error-printer', '-o', runnerCppPath, testHeaderPath], uniqueDir);
-  await compileCode('g++', ['-o', runnerExecutablePath, runnerCppPath, mainCppPath], uniqueDir);
+  await compileCode('g++', ['-std=c++20', '-o', runnerExecutablePath, runnerCppPath], uniqueDir);
 }
 
 function extractFunctionDeclarations(cppCode) {
@@ -239,10 +238,71 @@ ${testCode}
 }
 
 /**
- * Parses pytest output to extract test results.
- * @param {string} output - The output from pytest.
+ * Parses pytest output to extract structured test results.
+ * @param {string} stdout - The stdout from pytest.
+ * @param {string} [stderr=''] - The stderr from pytest.
+ * @param {number|null} [exitCode=null] - The pytest process exit code.
  * @returns {object} - The test summary.
  */
+function buildRawOutput(stdout = '', stderr = '') {
+  if (stdout && stderr) {
+    return `${stdout}\n${stderr}`;
+  }
+  return stdout || stderr || '';
+}
+
+function extractPytestSummary(output) {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const summaryLine = [...lines].reverse().find((line) => (
+    /^=+/.test(line) &&
+    /=+$/.test(line) &&
+    (/\bin [\d.]+s\b/.test(line) || /\bno tests ran\b/.test(line))
+  ));
+
+  if (!summaryLine) {
+    return '';
+  }
+
+  return summaryLine.replace(/^=+\s*/, '').replace(/\s*=+$/, '');
+}
+
+function extractPytestCount(summary, labelPattern) {
+  const match = summary.match(new RegExp(`(\\d+) ${labelPattern}\\b`));
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function extractPytestShortSummaryTarget(output, prefix) {
+  const line = output
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(`${prefix} `));
+
+  return line ? line.slice(prefix.length + 1).trim() : '';
+}
+
+function extractPytestErrorMessage(output, stderr = '') {
+  const combined = buildRawOutput(output, stderr);
+  const patterns = [
+    /^E\s+([A-Za-z_.]+(?:Error|Exception): .+)$/m,
+    /^([A-Za-z_.]+(?:Error|Exception): .+)$/m,
+    /^(ImportError while importing test module .+)$/m,
+    /^E\s+(.+)$/m,
+  ];
+
+  for (const pattern of patterns) {
+    const match = combined.match(pattern);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+
+  return 'Pytest error during collection or execution';
+}
+
 function hasCustomAssertionMessage(assertionSource) {
   const expression = assertionSource.replace(/^>\s*assert\s+/, '');
   let depth = 0;
@@ -272,12 +332,14 @@ function hasCustomAssertionMessage(assertionSource) {
   return false;
 }
 
-function parsePytestOutput(output, stdout = '', stderr = '') {
-  output = output.toString();
-  const lines = output.split(/\r?\n/);
+function parsePytestOutput(stdout = '', stderr = '', exitCode = null) {
+  const summary = extractPytestSummary(stdout);
+  const rawout = buildRawOutput(stdout, stderr);
+  const passed_tests = extractPytestCount(summary, 'passed');
+  const failed_tests = extractPytestCount(summary, 'failed');
+  const errors = extractPytestCount(summary, 'error(?:s)?');
+  const no_tests_collected = exitCode === 5 || /\bno tests ran\b/.test(summary);
   const failures = [];
-  let passed_tests = 0;
-  let failed_tests = 0;
   let currentFailure;
 
   const addFailure = () => {
@@ -292,9 +354,6 @@ function parsePytestOutput(output, stdout = '', stderr = '') {
     const usesCustomAssertionMessage =
       hasCustomAssertionMessage(currentFailure.assertionSource) &&
       firstMessageLine.startsWith('AssertionError:');
-    const error_message = usesCustomAssertionMessage
-      ? [firstMessageLine.replace(/^AssertionError:\s*/, ''), ...messageLines.slice(1)].join('\n')
-      : messageLines.join('\n');
     const comparison = firstMessageLine
       .replace(/^AssertionError:\s*/, '')
       .match(/^assert\s+(.+?)\s*==\s*(.+)$/);
@@ -303,12 +362,15 @@ function parsePytestOutput(output, stdout = '', stderr = '') {
       test_case: currentFailure.testCase || `Test ${failures.length + 1}`,
       expected: comparison?.[2]?.trim() || '',
       received: comparison?.[1]?.trim() || '',
-      error_message,
-      rawout: `${stdout}\n${stderr}`,
+      error_message: usesCustomAssertionMessage
+        ? [firstMessageLine.replace(/^AssertionError:\s*/, ''), ...messageLines.slice(1)].join('\n')
+        : messageLines.join('\n'),
+      rawout,
+      isError: currentFailure.isError,
     });
   };
 
-  for (const line of lines) {
+  for (const line of stdout.split(/\r?\n/)) {
     const failureHeader = line.match(/^_{5,}\s*(.*?)\s*_{5,}\s*$/);
     if (failureHeader) {
       addFailure();
@@ -317,6 +379,7 @@ function parsePytestOutput(output, stdout = '', stderr = '') {
         assertionSource: '',
         errorLines: [],
         finishedErrors: false,
+        isError: /\bERROR\b/.test(failureHeader[1]),
       };
       continue;
     }
@@ -343,30 +406,43 @@ function parsePytestOutput(output, stdout = '', stderr = '') {
   }
   addFailure();
 
-  const summaryLine = [...lines]
-    .reverse()
-    .find((line) => /^=+.*\b(?:passed|failed|errors?)\b.*=+$/.test(line));
-  const summaryCounts = summaryLine
-    ? [...summaryLine.matchAll(/(\d+)\s+(passed|failed|errors?)\b/g)]
-    : [];
-  for (const [, count, status] of summaryCounts) {
-    if (status === 'passed') {
-      passed_tests += Number(count);
-    } else {
-      failed_tests += Number(count);
-    }
-  }
+  const parsedFailures = failures.filter((failure) => !failure.isError).length;
+  const parsedErrors = failures.length - parsedFailures;
 
-  if (failed_tests === 0 && failures.length > 0) {
-    failed_tests = failures.length;
-  }
-  if (failed_tests > failures.length && failures.length === 0) {
+  if (failed_tests > parsedFailures) {
     failures.push({
-      test_case: 'Pytest collection',
+      test_case: extractPytestShortSummaryTarget(stdout, 'FAILED') || 'pytest assertion failure',
       expected: '',
       received: '',
-      error_message: 'Pytest reported a failure without diagnostic details.',
-      rawout: `${stdout}\n${stderr}`,
+      error_message: 'Pytest reported one or more failed assertions',
+      rawout,
+      isError: false,
+    });
+  }
+
+  let runtime_error = '';
+
+  if (errors > 0) {
+    runtime_error = extractPytestErrorMessage(stdout, stderr);
+    if (errors > parsedErrors) {
+      failures.push({
+        test_case: extractPytestShortSummaryTarget(stdout, 'ERROR') || 'pytest collection/execution',
+        expected: '',
+        received: '',
+        error_message: runtime_error,
+        rawout,
+        isError: true,
+      });
+    }
+  } else if (no_tests_collected) {
+    runtime_error = 'Pytest did not collect any tests';
+    failures.push({
+      test_case: 'pytest collection',
+      expected: 'at least 1 collected test',
+      received: '0 collected tests',
+      error_message: runtime_error,
+      rawout,
+      isError: true,
     });
   }
 
@@ -374,7 +450,11 @@ function parsePytestOutput(output, stdout = '', stderr = '') {
     tests_run: passed_tests + failed_tests,
     passed: passed_tests,
     failed: failed_tests,
-    failure_details: failures,
+    errors,
+    no_tests_collected,
+    exit_code: exitCode,
+    failure_details: failures.map(({ isError, ...failure }) => failure),
+    runtime_error,
   };
 }
 
@@ -437,6 +517,9 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     tests_run: 0,
     passed: 0,
     failed: 0,
+    errors: 0,
+    no_tests_collected: false,
+    exit_code: null,
     failure_details: [],
     compilation_error: '',
     runtime_error: '',
@@ -504,19 +587,33 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       }
 
       try {
-        output = await runProgram(executionConfig.runCommand, executionConfig.runArgs, stdin);
+        output = await runProgram(
+        executionConfig.runCommand,
+        executionConfig.runArgs,
+        stdin,
+        3000,
+        uniqueDir   // pass temp dir
+      );
       } catch (executionError) {
         console.error('Test execution failed:', executionError);
         response.state = 'failed';
+        response.exit_code = executionError.exitCode ?? null;
         output = {
           stdout: executionError.stdout || '',
           stderr: executionError.stderr || '',
+          exitCode: executionError.exitCode ?? null,
         };
         response.runtime_error = executionError.message;
       }
     } else {
       try {
-        output = await runProgram(executionConfig.runCommand, executionConfig.runArgs, stdin);
+        output = await runProgram(
+        executionConfig.runCommand,
+        executionConfig.runArgs,
+        stdin,
+        3000,
+        uniqueDir   // pass temp dir
+      );
       } catch (executionError) {
         console.error('Program execution failed:', executionError);
         if (language.toLowerCase() === 'python') {
@@ -524,16 +621,38 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
         } else {
           response.state = 'runtime_error';
         }
+        response.exit_code = executionError.exitCode ?? null;
         response.runtime_error = executionError.message;
         return response;
       }
     }
 
+    response.exit_code = output.exitCode ?? response.exit_code;
+
     if (runTests && testCode) {
       if (language.toLowerCase() === 'python') {
-        const testResults = parsePytestOutput(output.stdout, output.stdout, output.stderr);
+        const testResults = parsePytestOutput(output.stdout, output.stderr, output.exitCode ?? null);
+        const keepGenericRuntimeError = output.exitCode == null || (
+          output.exitCode !== 0 &&
+          output.exitCode !== 1 &&
+          output.exitCode !== 5 &&
+          testResults.errors === 0
+        );
+        const runtime_error = testResults.runtime_error || (keepGenericRuntimeError ? response.runtime_error : '');
+        const hasUnexpectedPytestExecutionError = Boolean(runtime_error) && (
+          testResults.failed === 0 &&
+          testResults.errors === 0 &&
+          !testResults.no_tests_collected
+        );
+
         response = { ...response, ...testResults };
-        response.state = testResults.failed === 0 ? 'passed' : 'failed';
+        response.runtime_error = runtime_error;
+        response.state = (
+          testResults.failed === 0 &&
+          testResults.errors === 0 &&
+          !testResults.no_tests_collected &&
+          !hasUnexpectedPytestExecutionError
+        ) ? 'passed' : 'failed';
         return response;
       }
 
@@ -567,6 +686,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       response.tests_run = 1;
       response.passed = output.stdout.trim() === expectedOutput.trim() ? 1 : 0;
       response.failed = response.passed === 0 ? 1 : 0;
+      response.exit_code = output.exitCode ?? response.exit_code;
       response.state = response.passed === 1 ? 'passed' : 'failed';
 
       if (response.failed) {
@@ -628,9 +748,9 @@ function compileCode(command, args, cwd) {
  * @param {string[]} args - The command arguments.
  * @param {string} [stdin=''] - Input for the process.
  * @param {number} [timeout=3000] - Timeout in milliseconds.
- * @returns {Promise<string>} - The program's stdout.
+ * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>} - The program output.
  */
-function runProgram(command, args, stdin = '', timeout = 3000) {
+function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null) {
   return new Promise((resolve, reject) => {
     const shell = 'bash';
     const wrapperArgs = [
@@ -647,23 +767,10 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
     let killedByEvaluator = false;
 
     const proc = spawn(shell, wrapperArgs, {
-      cwd: path.dirname(command),
+      cwd: workingDir || process.cwd(),   // fixed
       detached: true,
-      stdio: ['pipe','pipe','pipe']
+      stdio: ['pipe', 'pipe', 'pipe']
     });
-
-    // Resource monitor (memory/threads)
-    const interval = setInterval(async () => {
-      try {
-        // Example: use pidusage or ps to get memory/threads
-        // let info = await pidusage(proc.pid);
-        // if (info.memory > 300 * 1024 * 1024 || info.threadCount > 200) {
-        //   killedByEvaluator = true;
-        //   killGroup(proc.pid);
-        //   clearInterval(interval);
-        // }
-      } catch (_) {}
-    }, 100);
 
     const killGroup = (pid) => {
       killedByEvaluator = true;
@@ -674,7 +781,6 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
     const timer = setTimeout(() => {
       if (!finished) {
         killGroup(proc.pid);
-        clearInterval(interval);
         finished = true;
         return reject(new Error('Execution timed out'));
       }
@@ -692,10 +798,8 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
       if (finished) return;
 
       clearTimeout(timer);
-      clearInterval(interval);
       finished = true;
 
-      // If killed via signal (timeout/resource limits)
       if (signal || killedByEvaluator) {
         const reason = signal
           ? `terminated by signal ${signal}`
@@ -703,24 +807,24 @@ function runProgram(command, args, stdin = '', timeout = 3000) {
         const err = new Error(`Execution terminated: ${reason}`);
         err.stdout = stdout;
         err.stderr = stderr;
+        err.exitCode = null;
         return reject(err);
       }
 
-      // Normal exit code check
       if (code !== 0) {
         const err = new Error(`Execution failed with code ${code}`);
         err.stdout = stdout;
         err.stderr = stderr;
+        err.exitCode = code;
         return reject(err);
       }
 
-      resolve({ stdout, stderr });
+      resolve({ stdout, stderr, exitCode: code });
     });
 
     proc.on('error', err => {
       if (finished) return;
       clearTimeout(timer);
-      clearInterval(interval);
       finished = true;
       reject(new Error(`Failed to start process: ${err.message}`));
     });
