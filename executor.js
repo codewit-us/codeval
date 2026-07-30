@@ -243,54 +243,135 @@ ${testCode}
  * @param {string} output - The output from pytest.
  * @returns {object} - The test summary.
  */
-function parsePytestOutput(output, stdout = '', stderr = '') {
-  let total_tests = 0;
-  let passed_tests = 0;
-  let failed_tests = 0;
-  let failures = [];
+function hasCustomAssertionMessage(assertionSource) {
+  const expression = assertionSource.replace(/^>\s*assert\s+/, '');
+  let depth = 0;
+  let quote;
+  let escaped = false;
 
-  const match = output.match(/(\d+) passed, (\d+) failed/);
-  if (match) {
-    passed_tests = parseInt(match[1]);
-    failed_tests = parseInt(match[2]);
-    total_tests = passed_tests + failed_tests;
-  } else {
-    const singlePassMatch = output.match(/(\d+) passed/);
-    if (singlePassMatch) {
-      passed_tests = parseInt(singlePassMatch[1]);
-      total_tests = passed_tests;
-    }
-    const singleFailMatch = output.match(/(\d+) failed/);
-    if (singleFailMatch) {
-      failed_tests = parseInt(singleFailMatch[1]);
-      total_tests += failed_tests;
+  for (const character of expression) {
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '(' || character === '[' || character === '{') {
+      depth += 1;
+    } else if (character === ')' || character === ']' || character === '}') {
+      depth -= 1;
+    } else if (character === ',' && depth === 0) {
+      return true;
     }
   }
 
-  
-  const failureBlocks = output.split(/={10,} FAILURES ={10,}/)[1]?.split(/={10,}/)[0] || '';
+  return false;
+}
 
-  const matches = [...failureBlocks.matchAll(
-    /_{5,}\s*(.*?)\s*_{5,}[\s\S]*?>\s*assert\s+(.*?)\s*?\nE\s+assert\s+(.*?)\s*?(?:\nE\s+\+\s+where\s+(.*?)\s+=)?/g
-  )];
-  
-  matches.forEach((match, index) => {
-    const test_case = match[1]?.trim() || `Test ${index + 1}`;
-    const assertionLine = match[2]?.trim();
-    const failedExpr = match[3]?.trim();
-    const evaluated = match[4]?.trim() || '';
-  
+function parsePytestOutput(output, stdout = '', stderr = '') {
+  output = output.toString();
+  const lines = output.split(/\r?\n/);
+  const failures = [];
+  let passed_tests = 0;
+  let failed_tests = 0;
+  let currentFailure;
+
+  const addFailure = () => {
+    if (!currentFailure?.errorLines.length) {
+      return;
+    }
+
+    const messageLines = currentFailure.errorLines.map((line) =>
+      line.replace(/^\s*E {0,7}/, '')
+    );
+    const firstMessageLine = messageLines[0];
+    const usesCustomAssertionMessage =
+      hasCustomAssertionMessage(currentFailure.assertionSource) &&
+      firstMessageLine.startsWith('AssertionError:');
+    const error_message = usesCustomAssertionMessage
+      ? [firstMessageLine.replace(/^AssertionError:\s*/, ''), ...messageLines.slice(1)].join('\n')
+      : messageLines.join('\n');
+    const comparison = firstMessageLine
+      .replace(/^AssertionError:\s*/, '')
+      .match(/^assert\s+(.+?)\s*==\s*(.+)$/);
+
     failures.push({
-      test_case,
-      expected: failedExpr.split('==')[1]?.trim() || '',
-      received: evaluated || failedExpr.split('==')[0]?.trim(),
-      error_message: `Assertion failed: ${assertionLine}`,
-      rawout: `${stdout}\n${stderr}`
+      test_case: currentFailure.testCase || `Test ${failures.length + 1}`,
+      expected: comparison?.[2]?.trim() || '',
+      received: comparison?.[1]?.trim() || '',
+      error_message,
+      rawout: `${stdout}\n${stderr}`,
     });
-  });
+  };
+
+  for (const line of lines) {
+    const failureHeader = line.match(/^_{5,}\s*(.*?)\s*_{5,}\s*$/);
+    if (failureHeader) {
+      addFailure();
+      currentFailure = {
+        testCase: failureHeader[1].trim(),
+        assertionSource: '',
+        errorLines: [],
+        finishedErrors: false,
+      };
+      continue;
+    }
+
+    if (!currentFailure) {
+      continue;
+    }
+
+    if (/^={3,}|^!{3,}/.test(line)) {
+      addFailure();
+      currentFailure = undefined;
+      continue;
+    }
+
+    if (/^>\s*assert\b/.test(line)) {
+      currentFailure.assertionSource = line;
+    }
+
+    if (/^\s*E(?:\s|$)/.test(line) && !currentFailure.finishedErrors) {
+      currentFailure.errorLines.push(line);
+    } else if (currentFailure.errorLines.length) {
+      currentFailure.finishedErrors = true;
+    }
+  }
+  addFailure();
+
+  const summaryLine = [...lines]
+    .reverse()
+    .find((line) => /^=+.*\b(?:passed|failed|errors?)\b.*=+$/.test(line));
+  const summaryCounts = summaryLine
+    ? [...summaryLine.matchAll(/(\d+)\s+(passed|failed|errors?)\b/g)]
+    : [];
+  for (const [, count, status] of summaryCounts) {
+    if (status === 'passed') {
+      passed_tests += Number(count);
+    } else {
+      failed_tests += Number(count);
+    }
+  }
+
+  if (failed_tests === 0 && failures.length > 0) {
+    failed_tests = failures.length;
+  }
+  if (failed_tests > failures.length && failures.length === 0) {
+    failures.push({
+      test_case: 'Pytest collection',
+      expected: '',
+      received: '',
+      error_message: 'Pytest reported a failure without diagnostic details.',
+      rawout: `${stdout}\n${stderr}`,
+    });
+  }
 
   return {
-    tests_run: total_tests,
+    tests_run: passed_tests + failed_tests,
     passed: passed_tests,
     failed: failed_tests,
     failure_details: failures,
@@ -659,4 +740,4 @@ async function cleanupDir(dirPath) {
   }
 }
 
-module.exports = { executeCode };
+module.exports = { executeCode, parsePytestOutput };
