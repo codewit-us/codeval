@@ -386,7 +386,7 @@ function parsePytestOutput(stdout = '', stderr = '', exitCode = null) {
         assertionSource: '',
         errorLines: [],
         finishedErrors: false,
-        isError: /\bERROR\b/.test(failureHeader[1]),
+        isError: /^ERROR\b/.test(failureHeader[1].trim()),
       };
       continue;
     }
