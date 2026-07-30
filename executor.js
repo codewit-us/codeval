@@ -465,6 +465,40 @@ function parsePytestOutput(stdout = '', stderr = '', exitCode = null) {
   };
 }
 
+function buildPythonTestResponse(response, output) {
+  const testResults = parsePytestOutput(
+    output.stdout,
+    output.stderr,
+    output.exitCode ?? null
+  );
+  const keepGenericRuntimeError = output.exitCode == null || (
+    output.exitCode !== 0 &&
+    output.exitCode !== 1 &&
+    output.exitCode !== 5 &&
+    testResults.errors === 0
+  );
+  const runtime_error = testResults.runtime_error || (
+    keepGenericRuntimeError ? response.runtime_error : ''
+  );
+  const hasUnexpectedPytestExecutionError = Boolean(runtime_error) && (
+    testResults.failed === 0 &&
+    testResults.errors === 0 &&
+    !testResults.no_tests_collected
+  );
+
+  return {
+    ...response,
+    ...testResults,
+    runtime_error,
+    state: (
+      testResults.failed === 0 &&
+      testResults.errors === 0 &&
+      !testResults.no_tests_collected &&
+      !hasUnexpectedPytestExecutionError
+    ) ? 'passed' : 'failed',
+  };
+}
+
 function parseCppTestOutput(output, stdout = '', stderr = '') {
   output = output.toString();
   let total_tests = 0;
@@ -639,29 +673,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
 
     if (runTests && testCode) {
       if (language.toLowerCase() === 'python') {
-        const testResults = parsePytestOutput(output.stdout, output.stderr, output.exitCode ?? null);
-        const keepGenericRuntimeError = output.exitCode == null || (
-          output.exitCode !== 0 &&
-          output.exitCode !== 1 &&
-          output.exitCode !== 5 &&
-          testResults.errors === 0
-        );
-        const runtime_error = testResults.runtime_error || (keepGenericRuntimeError ? response.runtime_error : '');
-        const hasUnexpectedPytestExecutionError = Boolean(runtime_error) && (
-          testResults.failed === 0 &&
-          testResults.errors === 0 &&
-          !testResults.no_tests_collected
-        );
-
-        response = { ...response, ...testResults };
-        response.runtime_error = runtime_error;
-        response.state = (
-          testResults.failed === 0 &&
-          testResults.errors === 0 &&
-          !testResults.no_tests_collected &&
-          !hasUnexpectedPytestExecutionError
-        ) ? 'passed' : 'failed';
-        return response;
+        return buildPythonTestResponse(response, output);
       }
 
       if (language.toLowerCase() === 'cpp') {
@@ -852,4 +864,9 @@ async function cleanupDir(dirPath) {
   }
 }
 
-module.exports = { buildPytestInvocation, executeCode, parsePytestOutput };
+module.exports = {
+  buildPytestInvocation,
+  buildPythonTestResponse,
+  executeCode,
+  parsePytestOutput,
+};

@@ -1,6 +1,10 @@
 const assert = require('assert');
 const path = require('path');
-const { buildPytestInvocation, parsePytestOutput } = require('../executor');
+const {
+  buildPytestInvocation,
+  buildPythonTestResponse,
+  parsePytestOutput,
+} = require('../executor');
 
 const pytestDirectory = path.join('tmp', 'pytest-invocation');
 assert.deepStrictEqual(
@@ -243,4 +247,162 @@ for (const testCase of testCases) {
   );
 }
 
-console.log(`Passed ${testCases.length} pytest parser regression tests.`);
+const responseCases = [
+  {
+    name: 'maps a successful pytest exit to a passing response',
+    output: {
+      stdout: '============================== 2 passed in 0.01s ==============================',
+      stderr: '',
+      exitCode: 0,
+    },
+    runtimeError: '',
+    expected: {
+      state: 'passed',
+      exit_code: 0,
+      tests_run: 2,
+      passed: 2,
+      failed: 0,
+      errors: 0,
+      no_tests_collected: false,
+      runtime_error: '',
+      details: 0,
+    },
+  },
+  {
+    name: 'maps an assertion exit without retaining the generic process error',
+    output: {
+      stdout: testCases[0].output,
+      stderr: '',
+      exitCode: 1,
+    },
+    runtimeError: 'Execution failed with code 1',
+    expected: {
+      state: 'failed',
+      exit_code: 1,
+      tests_run: 1,
+      passed: 0,
+      failed: 1,
+      errors: 0,
+      no_tests_collected: false,
+      runtime_error: '',
+      details: 1,
+    },
+  },
+  {
+    name: 'maps collection errors to parsed pytest diagnostics',
+    output: {
+      stdout: testCases[5].output,
+      stderr: '',
+      exitCode: 2,
+    },
+    runtimeError: 'Execution failed with code 2',
+    expected: {
+      state: 'failed',
+      exit_code: 2,
+      tests_run: 0,
+      passed: 0,
+      failed: 0,
+      errors: 1,
+      no_tests_collected: false,
+      runtime_error: "SyntaxError: '(' was never closed",
+      details: 1,
+    },
+  },
+  {
+    name: 'maps no collected tests to the canonical failed response',
+    output: {
+      stdout: '============================ no tests ran in 0.01s ============================',
+      stderr: '',
+      exitCode: 5,
+    },
+    runtimeError: 'Execution failed with code 5',
+    expected: {
+      state: 'failed',
+      exit_code: 5,
+      tests_run: 0,
+      passed: 0,
+      failed: 0,
+      errors: 0,
+      no_tests_collected: true,
+      runtime_error: 'Pytest did not collect any tests',
+      details: 1,
+    },
+  },
+  {
+    name: 'retains an unexpected pytest process error',
+    output: {
+      stdout: '',
+      stderr: 'pytest: internal error',
+      exitCode: 3,
+    },
+    runtimeError: 'Execution failed with code 3',
+    expected: {
+      state: 'failed',
+      exit_code: 3,
+      tests_run: 0,
+      passed: 0,
+      failed: 0,
+      errors: 0,
+      no_tests_collected: false,
+      runtime_error: 'Execution failed with code 3',
+      details: 0,
+    },
+  },
+  {
+    name: 'retains a terminated pytest process error',
+    output: {
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+    },
+    runtimeError: 'Execution terminated: terminated by signal SIGTERM',
+    expected: {
+      state: 'failed',
+      exit_code: null,
+      tests_run: 0,
+      passed: 0,
+      failed: 0,
+      errors: 0,
+      no_tests_collected: false,
+      runtime_error: 'Execution terminated: terminated by signal SIGTERM',
+      details: 0,
+    },
+  },
+];
+
+for (const responseCase of responseCases) {
+  const result = buildPythonTestResponse(
+    {
+      state: 'failed',
+      exit_code: responseCase.output.exitCode,
+      runtime_error: responseCase.runtimeError,
+    },
+    responseCase.output
+  );
+
+  for (const field of [
+    'state',
+    'exit_code',
+    'tests_run',
+    'passed',
+    'failed',
+    'errors',
+    'no_tests_collected',
+    'runtime_error',
+  ]) {
+    assert.strictEqual(
+      result[field],
+      responseCase.expected[field],
+      `${responseCase.name}: ${field}`
+    );
+  }
+  assert.strictEqual(
+    result.failure_details.length,
+    responseCase.expected.details,
+    `${responseCase.name}: failure details`
+  );
+}
+
+console.log(
+  `Passed ${testCases.length} pytest parser and ${responseCases.length} response regression tests.`
+);
