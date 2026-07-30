@@ -1,5 +1,16 @@
 const assert = require('assert');
-const { parsePytestOutput } = require('../executor');
+const path = require('path');
+const { buildPytestInvocation, parsePytestOutput } = require('../executor');
+
+const pytestDirectory = path.join('tmp', 'pytest-invocation');
+assert.deepStrictEqual(
+  buildPytestInvocation(pytestDirectory),
+  {
+    command: 'pytest',
+    args: ['-vv', path.join(pytestDirectory, 'test_program.py')],
+  },
+  'configures Python tests to request complete pytest diagnostics'
+);
 
 const testCases = [
   {

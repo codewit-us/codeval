@@ -114,6 +114,13 @@ function configureExecution(language, code, uniqueDir) {
   return config;
 }
 
+function buildPytestInvocation(uniqueDir) {
+  return {
+    command: 'pytest',
+    args: ['-vv', path.join(uniqueDir, 'test_program.py')],
+  };
+}
+
 /**
  * Writes the provided code to a file.
  * @param {string} uniqueDir - The directory to write the file.
@@ -570,8 +577,9 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     let output;
     if (runTests && testCode) {
       if (language.toLowerCase() === 'python') {
-        executionConfig.runCommand = 'pytest';
-        executionConfig.runArgs = [path.join(uniqueDir, 'test_program.py')];
+        const pytestInvocation = buildPytestInvocation(uniqueDir);
+        executionConfig.runCommand = pytestInvocation.command;
+        executionConfig.runArgs = pytestInvocation.args;
       } else if (language.toLowerCase() === 'cpp') {
         executionConfig.runCommand = path.join(uniqueDir, 'runner');
         executionConfig.runArgs = [];
@@ -844,4 +852,4 @@ async function cleanupDir(dirPath) {
   }
 }
 
-module.exports = { executeCode, parsePytestOutput };
+module.exports = { buildPytestInvocation, executeCode, parsePytestOutput };
