@@ -105,6 +105,24 @@ curl -X POST http://localhost:3000/execute \
 }'
 ```
 
+The legacy C++ fixture above remains supported. New fixtures can omit the
+`program.cpp` include; the evaluator includes the submission and exposes
+`program_main()` for either `int main()` or `int main(int, char**)`:
+
+```cpp
+#include <cxxtest/TestSuite.h>
+
+class codewit_test : public CxxTest::TestSuite {
+public:
+  void testMain() {
+    TS_ASSERT_EQUALS(program_main(), 0);
+  }
+};
+```
+
+For an `int main(int argc, char** argv)` submission, `program_main()` invokes
+the program with an empty argument list.
+
 - Java
 
 ```bash

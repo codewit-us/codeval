@@ -166,8 +166,56 @@ function extractFunctionDeclarations(cppCode) {
   const matches = cppCode.match(regex);
   if (!matches) return '';
 
-  // Turn function definitions into declarations by adding semicolons
-  return matches.map(fn => fn.trim() + ';').join('\n');
+  // CxxTest generates the runner entry point, so the student's main must not
+  // be declared in the generated test header.
+  return matches
+    .filter((fn) => !/\bmain\s*\(/.test(fn))
+    .map((fn) => fn.trim() + ';')
+    .join('\n');
+}
+
+function testCodeIncludesProgramSource(testCode) {
+  return /^\s*#\s*include\s*[<"]program\.cpp[>"]/m.test(testCode);
+}
+
+function detectCppMainSignature(cppCode) {
+  const source = cppCode.replace(
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
+    ' '
+  );
+  const match = source.match(/\bint\s+main\s*\(([^)]*)\)\s*\{/);
+
+  if (!match) return null;
+
+  const parameters = match[1].trim();
+  if (!parameters || parameters === 'void') return 'noArguments';
+
+  const hasIntegerArgument = /\bint\b/.test(parameters);
+  const hasCharacterPointerArray = /\bchar\s*\*\s*\*(?:\s*[A-Za-z_]\w*)?|\bchar\s*\*\s*[A-Za-z_]\w*\s*\[\s*\]/.test(parameters);
+
+  return hasIntegerArgument && hasCharacterPointerArray ? 'arguments' : null;
+}
+
+function buildCppTestHeader(studentCode, testCode) {
+  if (testCodeIncludesProgramSource(testCode)) {
+    const declarations = extractFunctionDeclarations(studentCode);
+    return [declarations, testCode].filter(Boolean).join('\n\n');
+  }
+
+  const mainSignature = detectCppMainSignature(studentCode);
+  const adapter = mainSignature === 'noArguments'
+    ? 'inline int program_main() { return codeval_student_main(); }'
+    : mainSignature === 'arguments'
+      ? 'inline int program_main() { return codeval_student_main(0, nullptr); }'
+      : '';
+
+  return [
+    '#define main codeval_student_main',
+    '#include "program.cpp"',
+    '#undef main',
+    adapter,
+    testCode,
+  ].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -192,13 +240,7 @@ async function handleTestSetup(language, uniqueDir, className, testCode) {
       const programCppPath = path.join(uniqueDir, 'program.cpp');
       const studentCode = await fs.readFile(programCppPath, 'utf-8');
 
-      const declarations = extractFunctionDeclarations(studentCode);
-
-      const finalTestCode = `
-${declarations}
-
-${testCode}
-      `.trim();
+      const finalTestCode = buildCppTestHeader(studentCode, testCode);
 
       await fs.writeFile(path.join(uniqueDir, 'test_program.h'), finalTestCode);
       await generateCppTestRunner(uniqueDir);
@@ -762,4 +804,4 @@ async function cleanupDir(dirPath) {
   }
 }
 
-module.exports = { executeCode };
+module.exports = { buildCppTestHeader, executeCode };

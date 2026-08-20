@@ -17,6 +17,19 @@ Content-Type: application/json
 Cookie: connect.sid=suhvferkuhvikerv
 
 {
+    "language": "cpp",
+    "code": "int main(int argc, char** argv) { return argc; }",
+    "runTests": true,
+    "testCode": "#include <cxxtest/TestSuite.h>\nclass codewit_test : public CxxTest::TestSuite {\npublic:\nvoid testMain(){ TS_ASSERT_EQUALS(program_main(), 0); }\n};"
+}
+
+###
+
+POST http://localhost:3000/execute
+Content-Type: application/json
+Cookie: connect.sid=suhvferkuhvikerv
+
+{
     "language": "java",
     "code": "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}",
     "stdin": "",
