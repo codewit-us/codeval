@@ -1,0 +1,18 @@
+## AI Agent Reasoning
+
+### Context
+Issue #28 addresses CxxTest assertion failures that could be reported as a
+passing evaluation with a generic process error when a one-test summary used
+the singular word test.
+
+### Decisions Made
+- Reconcile CxxTest output and runner exit status in one helper so a nonzero,
+unparseable runner cannot overwrite the outcome to passed.
+- Treat parsed assertion failures as test failures and clear the generic
+process-exit message, while preserving the complete CxxTest assertion line
+for Results.
+- Preserve compile-error and normal expected-output mismatch classifications.
+
+### Verification
+Docker integration exercises invalid C++, a one-test CxxTest assertion
+failure, and a valid program with mismatched expected output.
