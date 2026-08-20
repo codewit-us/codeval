@@ -1,0 +1,13 @@
+## AI Agent Reasoning
+
+### Context
+CxxTest assertion failures were correctly classified after the prior fix but some valid CxxTest diagnostics fell back to the unhelpful message "CxxTest assertion failed".
+
+### Decisions Made
+- Parse diagnostic blocks beginning at CxxTest Error: instead of matching only Expected/found assertions, so TS_ASSERT and other CxxTest macros retain their student-facing text.
+- Keep test-summary counts test-level while allowing failure_details to be assertion-level, because one test can emit multiple diagnostic blocks.
+- Use a bounded contextual fallback only when no Error diagnostic is present; retain full process output in rawout.
+
+### Verification
+- npm test
+- Docker integration suite with RUN_EXECUTOR_INTEGRATION=true against CxxTest 4.4
