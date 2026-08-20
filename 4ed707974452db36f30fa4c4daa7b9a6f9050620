@@ -1,0 +1,21 @@
+## AI Agent Reasoning
+
+### Context
+Issue #26 fixes CxxTest compilation failures caused by generated declarations
+for a submitted C++ main conflicting with CxxTest's runner main.
+
+### Decisions Made
+- Preserve legacy fixtures that include program.cpp themselves, avoiding
+  duplicate definitions.
+- Use a harness mode for fixtures without that include, so tests can call one
+  no-argument program_main wrapper for supported main signatures.
+- Exclude main from generated declarations rather than broadening the existing
+  limited declaration regex into a C++ parser.
+
+### Trade-off
+Argument-taking main is invoked with argc 0 and argv nullptr. This supports
+entry-point testing without expanding the public execute API to carry argv.
+
+### Verification
+Docker CxxTest smoke tests cover no-argument, void, named and unnamed argc/argv,
+array argv, and legacy fixture forms.
