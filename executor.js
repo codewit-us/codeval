@@ -433,7 +433,7 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
       total_tests = parseInt(totalMatch[1]);
   }
 
-  const failedMatch = output.match(/Failed (\d+) and Skipped \d+ of (\d+) tests/);
+  const failedMatch = output.match(/Failed (\d+) and Skipped \d+ of (\d+) tests?/);
   if (failedMatch) {
       failed_tests = parseInt(failedMatch[1]);
       total_tests = parseInt(failedMatch[2]);
@@ -450,7 +450,7 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
       test_case: `Test ${index + 1}`,
       expected: expectedExpr,
       received: receivedValue,
-      error_message: "AssertionError: Output did not match expected result",
+      error_message: `AssertionError: ${match[0]}`,
       rawout: `${stdout}\n${stderr}`,
       stderr,
     });
@@ -461,6 +461,54 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
     passed: passed_tests,
     failed: failed_tests,
     failure_details: failures,
+  };
+}
+
+function buildCppTestResponse(response, output) {
+  const stdout = output.stdout || '';
+  const stderr = output.stderr || '';
+  const testResults = parseCppTestOutput(stdout, stdout, stderr);
+  const failureDetails = [...testResults.failure_details];
+  const runnerFailed = (output.exitCode != null && output.exitCode !== 0) || Boolean(response.runtime_error);
+  let failed = Math.max(testResults.failed, failureDetails.length);
+  let testsRun = Math.max(testResults.tests_run, failed);
+
+  if (failed > failureDetails.length) {
+    for (let index = failureDetails.length; index < failed; index += 1) {
+      failureDetails.push({
+        test_case: `Test ${index + 1}`,
+        expected: '',
+        received: '',
+        error_message: 'CxxTest assertion failed',
+        rawout: `${stdout}\n${stderr}`,
+        stderr,
+      });
+    }
+  }
+
+  let runtimeError = '';
+  if (runnerFailed && failed === 0) {
+    runtimeError = response.runtime_error || `C++ test runner exited with code ${output.exitCode}`;
+    testsRun = Math.max(testsRun, 1);
+    failed = 1;
+    failureDetails.push({
+      test_case: 'C++ test runner',
+      expected: '',
+      received: '',
+      error_message: runtimeError,
+      rawout: `${stdout}\n${stderr}`,
+      stderr,
+    });
+  }
+
+  return {
+    ...response,
+    tests_run: testsRun,
+    passed: Math.max(0, testsRun - failed),
+    failed,
+    failure_details: failureDetails,
+    runtime_error: runtimeError,
+    state: failed === 0 ? 'passed' : 'failed',
   };
 }
 
@@ -620,10 +668,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       }
 
       if (language.toLowerCase() === 'cpp') {
-        const testResults = parseCppTestOutput(output.stdout || output, output.stdout, output.stderr);
-        response = { ...response, ...testResults };
-        response.state = testResults.failed === 0 ? 'passed' : 'failed';
-        return response;
+        return buildCppTestResponse(response, output);
       }
 
       const stdout = (output.stdout || output).toString();
@@ -807,4 +852,9 @@ async function cleanupDir(dirPath) {
   }
 }
 
-module.exports = { buildCppTestHeader, executeCode };
+module.exports = {
+  buildCppTestHeader,
+  buildCppTestResponse,
+  executeCode,
+  parseCppTestOutput,
+};
