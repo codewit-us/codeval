@@ -99,9 +99,9 @@ curl -X POST http://localhost:3000/execute \
 -H "Content-Type: application/json" \
 -d '{
     "language": "cpp",
-    "code": "int main(int argc, char** argv) { return argc; }",
+    "code": "#include <iostream>\nint main(int argc, char** argv) { std::cout << \"Hello, CodeEval!\\n\"; return argc; }",
     "runTests": true,
-    "testCode": "#include <cxxtest/TestSuite.h>\nclass codewit_test : public CxxTest::TestSuite {\npublic:\nvoid testMain(){ TS_ASSERT_EQUALS(program_main(), 0); }\n};"
+    "testCode": "#include <cxxtest/TestSuite.h>\n#include <iostream>\n#include <sstream>\nclass codewit_test : public CxxTest::TestSuite {\npublic:\nvoid testMainOutput(){\nstd::ostringstream output;\nstd::streambuf* original = std::cout.rdbuf(output.rdbuf());\nint exitCode = program_main();\nstd::cout.rdbuf(original);\nTS_ASSERT_EQUALS(exitCode, 0);\nTS_ASSERT_EQUALS(output.str(), \"Hello, CodeEval!\\n\");\n}\n};"
 }'
 ```
 
