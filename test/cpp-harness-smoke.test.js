@@ -39,12 +39,30 @@ public:
 };
 `;
 
+const outputFixture = `
+#include <cxxtest/TestSuite.h>
+#include <iostream>
+#include <sstream>
+class OutputCppHarnessTest : public CxxTest::TestSuite {
+public:
+  void testProgramMainOutput() {
+    std::ostringstream output;
+    std::streambuf* original = std::cout.rdbuf(output.rdbuf());
+    int exitCode = program_main();
+    std::cout.rdbuf(original);
+    TS_ASSERT_EQUALS(exitCode, 0);
+    TS_ASSERT_EQUALS(output.str(), "Hello, CodeEval!\\n");
+  }
+};
+`;
+
 const cases = [
   ['no-argument main', 'int main() { return 0; }', fixture],
   ['void main', 'int main(void) { return 0; }', fixture],
   ['argument main', 'int main(int argc, char** argv) { return argc; }', fixture],
   ['unnamed argument main', 'int main(int, char**) { return 0; }', fixture],
   ['array argument main', 'int main(int argc, char* argv[]) { return argc; }', fixture],
+  ['captured standard output', '#include <iostream>\nint main(int argc, char** argv) { std::cout << "Hello, CodeEval!\\n"; return argc; }', outputFixture],
   ['legacy fixture', 'int main() { return 0; }', legacyFixture],
 ];
 
