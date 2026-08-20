@@ -99,29 +99,20 @@ curl -X POST http://localhost:3000/execute \
 -H "Content-Type: application/json" \
 -d '{
     "language": "cpp",
-    "code": "#include <iostream>\nusing namespace std;\nint main(){\ncout<<\"Hola!\n\";\nreturn 0;\n}\n",                                  
+    "code": "int main(int argc, char** argv) { return argc; }",
     "runTests": true,
-    "testCode": "#include <cxxtest/TestSuite.h>\n#include <sstream>\n#include <iostream>\n#define main program_main\n#include \"program.cpp\"\n#undef main\nclass codewit_test : public CxxTest::TestSuite {\npublic:\nvoid testHolaMundo(){\nstd::stringstream out;\nstd::streambuf* cout_buf = std::cout.rdbuf();\nstd::cout.rdbuf(out.rdbuf());\nprogram_main();\nstd::cout.rdbuf(cout_buf);\nTS_ASSERT_EQUALS(\"Hola!\n\",out.str());}};\n"
+    "testCode": "#include <cxxtest/TestSuite.h>\nclass codewit_test : public CxxTest::TestSuite {\npublic:\nvoid testMain(){ TS_ASSERT_EQUALS(program_main(), 0); }\n};"
 }'
 ```
 
-The legacy C++ fixture above remains supported. New fixtures can omit the
-`program.cpp` include; the evaluator includes the submission and exposes
-`program_main()` for either `int main()` or `int main(int, char**)`:
+The evaluator includes `program.cpp` for this fixture and exposes
+`program_main()`. It supports the standard C++ entry-point forms `int main()`,
+`int main(void)`, `int main(int, char**)`, and `int main(int, char*[])`.
 
-```cpp
-#include <cxxtest/TestSuite.h>
-
-class codewit_test : public CxxTest::TestSuite {
-public:
-  void testMain() {
-    TS_ASSERT_EQUALS(program_main(), 0);
-  }
-};
-```
-
-For an `int main(int argc, char** argv)` submission, `program_main()` invokes
-the program with an empty argument list.
+For an argc/argv submission, `program_main()` invokes the program with an
+empty argument list. The legacy self-including fixture form using
+`#define main program_main` and `#include "program.cpp"` also remains
+supported.
 
 - Java
 

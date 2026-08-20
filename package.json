@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node test/cpp-harness.test.js && node test/cpp-harness-smoke.test.js"
+    "test": "node test/cpp-harness.test.js && node test/cpp-harness-smoke.test.js && node test/executor-response.test.js"
   },
   "keywords": [],
   "author": "",

@@ -178,22 +178,12 @@ function testCodeIncludesProgramSource(testCode) {
   return /^\s*#\s*include\s*[<"]program\.cpp[>"]/m.test(testCode);
 }
 
-function detectCppMainSignature(cppCode) {
+function sourceContainsCppMain(cppCode) {
   const source = cppCode.replace(
     /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
     ' '
   );
-  const match = source.match(/\bint\s+main\s*\(([^)]*)\)\s*\{/);
-
-  if (!match) return null;
-
-  const parameters = match[1].trim();
-  if (!parameters || parameters === 'void') return 'noArguments';
-
-  const hasIntegerArgument = /\bint\b/.test(parameters);
-  const hasCharacterPointerArray = /\bchar\s*\*\s*\*(?:\s*[A-Za-z_]\w*)?|\bchar\s*\*\s*[A-Za-z_]\w*\s*\[\s*\]/.test(parameters);
-
-  return hasIntegerArgument && hasCharacterPointerArray ? 'arguments' : null;
+  return /\bmain\s*\(/.test(source);
 }
 
 function buildCppTestHeader(studentCode, testCode) {
@@ -202,12 +192,25 @@ function buildCppTestHeader(studentCode, testCode) {
     return [declarations, testCode].filter(Boolean).join('\n\n');
   }
 
-  const mainSignature = detectCppMainSignature(studentCode);
-  const adapter = mainSignature === 'noArguments'
-    ? 'inline int program_main() { return codeval_student_main(); }'
-    : mainSignature === 'arguments'
-      ? 'inline int program_main() { return codeval_student_main(0, nullptr); }'
-      : '';
+  const adapter = sourceContainsCppMain(studentCode)
+    ? `#include <type_traits>
+
+template <typename EntryPoint>
+int codeval_invoke_main(EntryPoint entryPoint) {
+  if constexpr (std::is_invocable_v<EntryPoint>) {
+    return entryPoint();
+  } else if constexpr (std::is_invocable_v<EntryPoint, int, char**>) {
+    return entryPoint(0, nullptr);
+  } else {
+    static_assert(std::is_invocable_v<EntryPoint>, "Unsupported main signature");
+    return 1;
+  }
+}
+
+inline int program_main() {
+  return codeval_invoke_main(codeval_student_main);
+}`
+    : '';
 
   return [
     '#define main codeval_student_main',
