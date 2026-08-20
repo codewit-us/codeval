@@ -24,6 +24,16 @@ public:
 };
 `;
 
+const genericAssertionTest = `
+#include <cxxtest/TestSuite.h>
+class GenericAssertionTest : public CxxTest::TestSuite {
+public:
+  void testStudentGuidance() {
+    TS_ASSERT(false);
+  }
+};
+`;
+
 async function run() {
   const compilationError = await executeCode('cpp', 'int main( { return 0; }', '', '', false);
   assert.strictEqual(compilationError.state, 'compile_error');
@@ -44,8 +54,19 @@ async function run() {
   assert.strictEqual(assertionFailure.passed, 0);
   assert.strictEqual(assertionFailure.failed, 1);
   assert.strictEqual(assertionFailure.runtime_error, '');
-  assert.ok(assertionFailure.failure_details[0].error_message.includes('AssertionError'));
-  assert.ok(assertionFailure.failure_details[0].rawout.includes('Expected'));
+  assert.ok(assertionFailure.failure_details[0].error_message.startsWith('Error: Expected'));
+
+  const genericAssertionFailure = await executeCode(
+    'cpp',
+    'int main() { return 0; }',
+    '',
+    '',
+    true,
+    genericAssertionTest
+  );
+  assert.strictEqual(genericAssertionFailure.state, 'failed');
+  assert.strictEqual(genericAssertionFailure.failed, 1);
+  assert.ok(genericAssertionFailure.failure_details[0].error_message.startsWith('Error: Assertion failed:'));
 
   const outputMismatch = await executeCode(
     'cpp',

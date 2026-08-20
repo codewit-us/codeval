@@ -441,16 +441,13 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
 
   passed_tests = total_tests - failed_tests;
 
-  const failureMatches = [...output.matchAll(/Error: Expected \((.*?)\), found \((.*?)\)/g)];
-  failureMatches.forEach((match, index) => {
-    const expectedExpr = match[1].split("==")[1]?.trim() || match[1].trim();
-    const receivedValue = match[2].split("!=")[0]?.trim() || match[2].trim();
-
+  const diagnosticBlocks = extractCppDiagnosticBlocks(output);
+  diagnosticBlocks.forEach((message, index) => {
     failures.push({
       test_case: `Test ${index + 1}`,
-      expected: expectedExpr,
-      received: receivedValue,
-      error_message: `AssertionError: ${match[0]}`,
+      expected: '',
+      received: '',
+      error_message: message,
       rawout: `${stdout}\n${stderr}`,
       stderr,
     });
@@ -464,6 +461,46 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
   };
 }
 
+function extractCppDiagnosticBlocks(output) {
+  const diagnostics = [];
+  let current = [];
+
+  const addCurrent = () => {
+    if (current.length > 0) {
+      diagnostics.push(current.join('\n'));
+      current = [];
+    }
+  };
+
+  for (const line of output.toString().split(/\r?\n/)) {
+    const errorIndex = line.indexOf('Error:');
+    if (errorIndex !== -1) {
+      addCurrent();
+      current = [line.slice(errorIndex)];
+      continue;
+    }
+
+    if (current.length > 0 && line && !/^(Running cxxtest tests|In .+?:|Failed \d+ and Skipped|Success rate:)/.test(line)) {
+      current.push(line);
+    } else {
+      addCurrent();
+    }
+  }
+
+  addCurrent();
+  return diagnostics;
+}
+
+function extractCppFailureFallback(stdout, stderr) {
+  const output = `${stdout}\n${stderr}`;
+  const relevantLines = output
+    .split(/\r?\n/)
+    .filter((line) => line.includes('Error:') || /^Failed \d+ and Skipped/.test(line));
+  const message = (relevantLines.join('\n') || output.trim()).slice(0, 4096);
+
+  return message || 'CxxTest reported a failed test without a diagnostic message';
+}
+
 function buildCppTestResponse(response, output) {
   const stdout = output.stdout || '';
   const stderr = output.stderr || '';
@@ -473,17 +510,15 @@ function buildCppTestResponse(response, output) {
   let failed = Math.max(testResults.failed, failureDetails.length);
   let testsRun = Math.max(testResults.tests_run, failed);
 
-  if (failed > failureDetails.length) {
-    for (let index = failureDetails.length; index < failed; index += 1) {
-      failureDetails.push({
-        test_case: `Test ${index + 1}`,
-        expected: '',
-        received: '',
-        error_message: 'CxxTest assertion failed',
-        rawout: `${stdout}\n${stderr}`,
-        stderr,
-      });
-    }
+  if (failed > 0 && failureDetails.length === 0) {
+    failureDetails.push({
+      test_case: 'CxxTest',
+      expected: '',
+      received: '',
+      error_message: extractCppFailureFallback(stdout, stderr),
+      rawout: `${stdout}\n${stderr}`,
+      stderr,
+    });
   }
 
   let runtimeError = '';
