@@ -351,7 +351,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     if (runTests && testCode) {
       if (language.toLowerCase() === 'python') {
         executionConfig.runCommand = 'pytest';
-        executionConfig.runArgs = [path.join(uniqueDir, 'test_program.py')];
+        executionConfig.runArgs = ['-vv', path.join(uniqueDir, 'test_program.py')];
       } else if (language.toLowerCase() === 'cpp') {
         executionConfig.runCommand = path.join(uniqueDir, 'runner');
         executionConfig.runArgs = [];

@@ -108,13 +108,17 @@ function extractPytestAssertionDetails(body = '') {
   const errorLines = [...body.matchAll(/^\s*E\s+(.+)$/gm)]
     .map((match) => match[1].trim())
     .filter((line) => line && !/^\+\s+where\b/.test(line));
-  const technicalLine = errorLines[errorLines.length - 1] || '';
+  const technicalLine = errorLines.find((line) => (
+    /^(?:AssertionError:\s+)?assert\s+/.test(line)
+  )) || '';
 
-  if (!technicalLine.startsWith('assert ')) {
+  const expressionMatch = technicalLine.match(/^(?:AssertionError:\s+)?assert\s+(.+)$/);
+
+  if (!expressionMatch) {
     return null;
   }
 
-  const expression = technicalLine.replace(/^assert\s+/, '').trim();
+  const expression = expressionMatch[1].trim();
   const operators = [' is not ', ' is ', '=='];
   const operator = operators.find((candidate) => expression.includes(candidate));
 

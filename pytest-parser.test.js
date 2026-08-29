@@ -227,3 +227,36 @@ FAILED test_program.py::test_hat_variables - assert True is False
   assert.equal(parsed.failure_details[0].received, 'True');
   assert.equal(parsed.failure_details[0].expected, 'False');
 });
+
+test('extracts complete captured output values from pytest verbose assertion failures', () => {
+  // Captured from pytest 8.2.0 with `pytest -vv`; -vv prevents pytest from
+  // abbreviating the compared output with ellipses and a truncation notice.
+  const stdout = `
+============================= test session starts ==============================
+collected 1 item
+
+test_program.py::test_weekly_todo FAILED                                [100%]
+
+=================================== FAILURES ===================================
+_______________________________ test_weekly_todo _______________________________
+
+>       assert capsys.readouterr().out == expected_output
+E       AssertionError: assert 'Weekly to-do list for the 7 days of the weeke:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n' == 'Weekly to-do list for the 7 days of the week:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n'
+E
+E         - Weekly to-do list for the 7 days of the week:
+E         + Weekly to-do list for the 7 days of the weeke:
+E         ?                                             +
+E           Mon: Laundry
+
+test_program.py:29: AssertionError
+=========================== short test summary info ============================
+FAILED test_program.py::test_weekly_todo - AssertionError: assert 'Weekly to-do list for the 7 days of the weeke:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n' == 'Weekly to-do list for the 7 days of the week:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n'
+============================== 1 failed in 0.01s ===============================
+  `.trim();
+
+  const parsed = parsePytestOutput(stdout, '', 1);
+
+  assert.equal(parsed.failure_details.length, 1);
+  assert.equal(parsed.failure_details[0].received, "'Weekly to-do list for the 7 days of the weeke:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n'");
+  assert.equal(parsed.failure_details[0].expected, "'Weekly to-do list for the 7 days of the week:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n'");
+});
