@@ -167,8 +167,59 @@ function extractFunctionDeclarations(cppCode) {
   const matches = cppCode.match(regex);
   if (!matches) return '';
 
-  // Turn function definitions into declarations by adding semicolons
-  return matches.map(fn => fn.trim() + ';').join('\n');
+  // CxxTest generates the runner entry point, so the student's main must not
+  // be declared in the generated test header.
+  return matches
+    .filter((fn) => !/\bmain\s*\(/.test(fn))
+    .map((fn) => fn.trim() + ';')
+    .join('\n');
+}
+
+function testCodeIncludesProgramSource(testCode) {
+  return /^\s*#\s*include\s*[<"]program\.cpp[>"]/m.test(testCode);
+}
+
+function sourceContainsCppMain(cppCode) {
+  const source = cppCode.replace(
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
+    ' '
+  );
+  return /\bmain\s*\(/.test(source);
+}
+
+function buildCppTestHeader(studentCode, testCode) {
+  if (testCodeIncludesProgramSource(testCode)) {
+    const declarations = extractFunctionDeclarations(studentCode);
+    return [declarations, testCode].filter(Boolean).join('\n\n');
+  }
+
+  const adapter = sourceContainsCppMain(studentCode)
+    ? `#include <type_traits>
+
+template <typename EntryPoint>
+int codeval_invoke_main(EntryPoint entryPoint) {
+  if constexpr (std::is_invocable_v<EntryPoint>) {
+    return entryPoint();
+  } else if constexpr (std::is_invocable_v<EntryPoint, int, char**>) {
+    return entryPoint(0, nullptr);
+  } else {
+    static_assert(std::is_invocable_v<EntryPoint>, "Unsupported main signature");
+    return 1;
+  }
+}
+
+inline int program_main() {
+  return codeval_invoke_main(codeval_student_main);
+}`
+    : '';
+
+  return [
+    '#define main codeval_student_main',
+    '#include "program.cpp"',
+    '#undef main',
+    adapter,
+    testCode,
+  ].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -193,13 +244,7 @@ async function handleTestSetup(language, uniqueDir, className, testCode) {
       const programCppPath = path.join(uniqueDir, 'program.cpp');
       const studentCode = await fs.readFile(programCppPath, 'utf-8');
 
-      const declarations = extractFunctionDeclarations(studentCode);
-
-      const finalTestCode = `
-${declarations}
-
-${testCode}
-      `.trim();
+      const finalTestCode = buildCppTestHeader(studentCode, testCode);
 
       await fs.writeFile(path.join(uniqueDir, 'test_program.h'), finalTestCode);
       await generateCppTestRunner(uniqueDir);
@@ -250,7 +295,7 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
       total_tests = parseInt(totalMatch[1]);
   }
 
-  const failedMatch = output.match(/Failed (\d+) and Skipped \d+ of (\d+) tests/);
+  const failedMatch = output.match(/Failed (\d+) and Skipped \d+ of (\d+) tests?/);
   if (failedMatch) {
       failed_tests = parseInt(failedMatch[1]);
       total_tests = parseInt(failedMatch[2]);
@@ -258,16 +303,13 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
 
   passed_tests = total_tests - failed_tests;
 
-  const failureMatches = [...output.matchAll(/Error: Expected \((.*?)\), found \((.*?)\)/g)];
-  failureMatches.forEach((match, index) => {
-    const expectedExpr = match[1].split("==")[1]?.trim() || match[1].trim();
-    const receivedValue = match[2].split("!=")[0]?.trim() || match[2].trim();
-
+  const diagnosticBlocks = extractCppDiagnosticBlocks(output);
+  diagnosticBlocks.forEach((message, index) => {
     failures.push({
       test_case: `Test ${index + 1}`,
-      expected: expectedExpr,
-      received: receivedValue,
-      error_message: "AssertionError: Output did not match expected result",
+      expected: '',
+      received: '',
+      error_message: message,
       rawout: `${stdout}\n${stderr}`,
       stderr,
     });
@@ -278,6 +320,92 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
     passed: passed_tests,
     failed: failed_tests,
     failure_details: failures,
+  };
+}
+
+function extractCppDiagnosticBlocks(output) {
+  const diagnostics = [];
+  let current = [];
+
+  const addCurrent = () => {
+    if (current.length > 0) {
+      diagnostics.push(current.join('\n'));
+      current = [];
+    }
+  };
+
+  for (const line of output.toString().split(/\r?\n/)) {
+    const errorIndex = line.indexOf('Error:');
+    if (errorIndex !== -1) {
+      addCurrent();
+      current = [line.slice(errorIndex)];
+      continue;
+    }
+
+    if (current.length > 0 && line && !/^(Running cxxtest tests|In .+?:|Failed \d+ and Skipped|Success rate:)/.test(line)) {
+      current.push(line);
+    } else {
+      addCurrent();
+    }
+  }
+
+  addCurrent();
+  return diagnostics;
+}
+
+function extractCppFailureFallback(stdout, stderr) {
+  const output = `${stdout}\n${stderr}`;
+  const relevantLines = output
+    .split(/\r?\n/)
+    .filter((line) => line.includes('Error:') || /^Failed \d+ and Skipped/.test(line));
+  const message = (relevantLines.join('\n') || output.trim()).slice(0, 4096);
+
+  return message || 'CxxTest reported a failed test without a diagnostic message';
+}
+
+function buildCppTestResponse(response, output) {
+  const stdout = output.stdout || '';
+  const stderr = output.stderr || '';
+  const testResults = parseCppTestOutput(stdout, stdout, stderr);
+  const failureDetails = [...testResults.failure_details];
+  const runnerFailed = (output.exitCode != null && output.exitCode !== 0) || Boolean(response.runtime_error);
+  let failed = Math.max(testResults.failed, failureDetails.length);
+  let testsRun = Math.max(testResults.tests_run, failed);
+
+  if (failed > 0 && failureDetails.length === 0) {
+    failureDetails.push({
+      test_case: 'CxxTest',
+      expected: '',
+      received: '',
+      error_message: extractCppFailureFallback(stdout, stderr),
+      rawout: `${stdout}\n${stderr}`,
+      stderr,
+    });
+  }
+
+  let runtimeError = '';
+  if (runnerFailed && failed === 0) {
+    runtimeError = response.runtime_error || `C++ test runner exited with code ${output.exitCode}`;
+    testsRun = Math.max(testsRun, 1);
+    failed = 1;
+    failureDetails.push({
+      test_case: 'C++ test runner',
+      expected: '',
+      received: '',
+      error_message: runtimeError,
+      rawout: `${stdout}\n${stderr}`,
+      stderr,
+    });
+  }
+
+  return {
+    ...response,
+    tests_run: testsRun,
+    passed: Math.max(0, testsRun - failed),
+    failed,
+    failure_details: failureDetails,
+    runtime_error: runtimeError,
+    state: failed === 0 ? 'passed' : 'failed',
   };
 }
 
@@ -437,10 +565,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       }
 
       if (language.toLowerCase() === 'cpp') {
-        const testResults = parseCppTestOutput(output.stdout || output, output.stdout, output.stderr);
-        response = { ...response, ...testResults };
-        response.state = testResults.failed === 0 ? 'passed' : 'failed';
-        return response;
+        return buildCppTestResponse(response, output);
       }
 
       const stdout = (output.stdout || output).toString();
@@ -624,4 +749,9 @@ async function cleanupDir(dirPath) {
   }
 }
 
-module.exports = { executeCode };
+module.exports = {
+  buildCppTestHeader,
+  buildCppTestResponse,
+  executeCode,
+  parseCppTestOutput,
+};
