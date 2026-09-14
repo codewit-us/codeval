@@ -506,7 +506,9 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       );
       } catch (executionError) {
         console.error('Test execution failed:', executionError);
-        recordExecutionError(response, executionError, 'failed');
+        const timedOut = recordExecutionError(response, executionError, 'failed');
+        if (timedOut) return response;
+
         output = {
           stdout: executionError.stdout || '',
           stderr: executionError.stderr || '',
@@ -668,7 +670,6 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
     let stderr = '';
     let finished = false;
     let timedOut = false;
-    let forceKillTimer = null;
 
     const proc = spawn(shell, wrapperArgs, {
       cwd: workingDir || process.cwd(),   // fixed
@@ -678,10 +679,7 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
 
     const killGroup = (pid) => {
       timedOut = true;
-      try { process.kill(-pid, 'SIGTERM'); } catch (_) {}
-      forceKillTimer = setTimeout(() => {
-        try { process.kill(-pid, 'SIGKILL'); } catch (_) {}
-      }, 400);
+      terminateProcessGroup(pid);
     };
 
     const timer = setTimeout(() => {
@@ -702,7 +700,6 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
       if (finished) return;
 
       clearTimeout(timer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
       finished = true;
 
       if (timedOut) {
@@ -736,11 +733,19 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
     proc.on('error', err => {
       if (finished) return;
       clearTimeout(timer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
       finished = true;
       reject(new Error(`Failed to start process: ${err.message}`));
     });
   });
+}
+
+function terminateProcessGroup(pid, kill = process.kill, schedule = setTimeout) {
+  try { kill(-pid, 'SIGTERM'); } catch (_) {}
+
+  const forceKillTimer = schedule(() => {
+    try { kill(-pid, 'SIGKILL'); } catch (_) {}
+  }, 400);
+  forceKillTimer.unref?.();
 }
 
 function recordExecutionError(response, error, defaultState) {
@@ -752,6 +757,8 @@ function recordExecutionError(response, error, defaultState) {
   response.execution_time_exceeded = timedOut;
   response.stdout = error.stdout || '';
   response.stderr = error.stderr || '';
+
+  return timedOut;
 }
 
 /**
@@ -774,4 +781,5 @@ module.exports = {
   parseCppTestOutput,
   recordExecutionError,
   runProgram,
+  terminateProcessGroup,
 };
