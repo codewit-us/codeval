@@ -288,3 +288,40 @@ FAILED test_program.py::test_weekly_todo - AssertionError: assert 'Weekly to-do 
   assert.equal(parsed.failure_details[0].received, "'Weekly to-do list for the 7 days of the weeke:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n'");
   assert.equal(parsed.failure_details[0].expected, "'Weekly to-do list for the 7 days of the week:\\nMon: Laundry\\nTues: Groceries\\nWed Gym\\nThur: Study\\nFri: Work\\nSat: Hike\\nSun: Rest\\n'");
 });
+
+test('keeps a distinct scoped diagnostic for each pytest failure', () => {
+  const stdout = `
+============================= test session starts ==============================
+collected 2 items
+
+test_program.py::test_hats FAILED                                      [ 50%]
+test_program.py::TestClothes::test_shirt[color-red] FAILED             [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_hats ___________________________________
+
+>       assert program.NumberOfHats == 9
+E       assert 8 == 9
+
+test_program.py:4: AssertionError
+_____________________ TestClothes.test_shirt[color-red] ______________________
+
+>       assert program.ShirtColor == "red"
+E       assert "blue" == "red"
+
+test_program.py:8: AssertionError
+=========================== short test summary info ============================
+FAILED test_program.py::test_hats - assert 8 == 9
+FAILED test_program.py::TestClothes::test_shirt[color-red] - assert "blue" == "red"
+============================== 2 failed in 0.01s ===============================
+  `.trim();
+
+  const parsed = parsePytestOutput(stdout, '', 1);
+
+  assert.equal(parsed.failure_details.length, 2);
+  assert.match(parsed.failure_details[0].diagnostic, /program\.NumberOfHats/);
+  assert.doesNotMatch(parsed.failure_details[0].diagnostic, /program\.ShirtColor/);
+  assert.match(parsed.failure_details[1].diagnostic, /program\.ShirtColor/);
+  assert.doesNotMatch(parsed.failure_details[1].diagnostic, /program\.NumberOfHats/);
+  assert.equal(parsed.failure_details[0].rawout, parsed.failure_details[1].rawout);
+});

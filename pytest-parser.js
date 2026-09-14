@@ -206,6 +206,7 @@ function extractPytestFailureDetail(block, rawout) {
       expected: assertionDetails.expected,
       received: assertionDetails.received,
       error_message: assertionMessage || `Assertion failed: ${assertionDetails.assertionLine || assertionDetails.technicalLine}`,
+      diagnostic: block.body.trim(),
       rawout,
     };
   }
@@ -215,6 +216,7 @@ function extractPytestFailureDetail(block, rawout) {
     expected: '',
     received: '',
     error_message: assertionMessage || technicalLine || (sourceLineMatch ? `Assertion failed: ${sourceLineMatch[1].trim()}` : 'Pytest reported a failure'),
+    diagnostic: block.body.trim(),
     rawout,
   };
 }

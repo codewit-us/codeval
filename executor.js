@@ -4,6 +4,8 @@ const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
 const { parsePytestOutput } = require('./pytest-parser');
 
+const EXECUTION_TIMEOUT = 'EXECUTION_TIMEOUT';
+
 /**
  * Ensures the datasets repo is cloned or updated in the unique directory.
  * @param {string} uniqueDir - The temp directory where datasets should be cloned.
@@ -504,14 +506,12 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       );
       } catch (executionError) {
         console.error('Test execution failed:', executionError);
-        response.state = 'failed';
-        response.exit_code = executionError.exitCode ?? null;
+        recordExecutionError(response, executionError, 'failed');
         output = {
           stdout: executionError.stdout || '',
           stderr: executionError.stderr || '',
           exitCode: executionError.exitCode ?? null,
         };
-        response.runtime_error = executionError.message;
       }
     } else {
       try {
@@ -524,13 +524,11 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
       );
       } catch (executionError) {
         console.error('Program execution failed:', executionError);
-        if (language.toLowerCase() === 'python') {
-          response.state = 'failed';
-        } else {
-          response.state = 'runtime_error';
-        }
-        response.exit_code = executionError.exitCode ?? null;
-        response.runtime_error = executionError.message;
+        recordExecutionError(
+          response,
+          executionError,
+          language.toLowerCase() === 'python' ? 'failed' : 'runtime_error'
+        );
         return response;
       }
     }
@@ -540,7 +538,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
     if (runTests && testCode) {
       if (language.toLowerCase() === 'python') {
         const testResults = parsePytestOutput(output.stdout, output.stderr, output.exitCode ?? null);
-        const keepGenericRuntimeError = output.exitCode == null || (
+        const keepGenericRuntimeError = response.execution_time_exceeded || output.exitCode == null || (
           output.exitCode !== 0 &&
           output.exitCode !== 1 &&
           output.exitCode !== 5 &&
@@ -555,7 +553,7 @@ async function executeCode(language, code, stdin, expectedOutput, runTests = fal
 
         response = { ...response, ...testResults };
         response.runtime_error = runtime_error;
-        response.state = (
+        response.state = response.execution_time_exceeded ? 'failed' : (
           testResults.failed === 0 &&
           testResults.errors === 0 &&
           !testResults.no_tests_collected &&
@@ -669,7 +667,8 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
     let stdout = '';
     let stderr = '';
     let finished = false;
-    let killedByEvaluator = false;
+    let timedOut = false;
+    let forceKillTimer = null;
 
     const proc = spawn(shell, wrapperArgs, {
       cwd: workingDir || process.cwd(),   // fixed
@@ -678,16 +677,16 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
     });
 
     const killGroup = (pid) => {
-      killedByEvaluator = true;
+      timedOut = true;
       try { process.kill(-pid, 'SIGTERM'); } catch (_) {}
-      setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch (_) {} }, 400);
+      forceKillTimer = setTimeout(() => {
+        try { process.kill(-pid, 'SIGKILL'); } catch (_) {}
+      }, 400);
     };
 
     const timer = setTimeout(() => {
       if (!finished) {
         killGroup(proc.pid);
-        finished = true;
-        return reject(new Error('Execution timed out'));
       }
     }, timeout);
 
@@ -703,13 +702,20 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
       if (finished) return;
 
       clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       finished = true;
 
-      if (signal || killedByEvaluator) {
-        const reason = signal
-          ? `terminated by signal ${signal}`
-          : 'terminated by evaluator';
-        const err = new Error(`Execution terminated: ${reason}`);
+      if (timedOut) {
+        const error = new Error('Execution timed out');
+        error.code = EXECUTION_TIMEOUT;
+        error.stdout = stdout;
+        error.stderr = stderr;
+        error.exitCode = null;
+        return reject(error);
+      }
+
+      if (signal) {
+        const err = new Error(`Execution terminated by signal ${signal}`);
         err.stdout = stdout;
         err.stderr = stderr;
         err.exitCode = null;
@@ -730,10 +736,22 @@ function runProgram(command, args, stdin = '', timeout = 3000, workingDir = null
     proc.on('error', err => {
       if (finished) return;
       clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       finished = true;
       reject(new Error(`Failed to start process: ${err.message}`));
     });
   });
+}
+
+function recordExecutionError(response, error, defaultState) {
+  const timedOut = error.code === EXECUTION_TIMEOUT;
+
+  response.state = timedOut ? 'failed' : defaultState;
+  response.exit_code = error.exitCode ?? null;
+  response.runtime_error = error.message;
+  response.execution_time_exceeded = timedOut;
+  response.stdout = error.stdout || '';
+  response.stderr = error.stderr || '';
 }
 
 /**
@@ -754,4 +772,6 @@ module.exports = {
   buildCppTestResponse,
   executeCode,
   parseCppTestOutput,
+  recordExecutionError,
+  runProgram,
 };
