@@ -103,6 +103,53 @@ function extractPytestFailureBlocks(stdout = '') {
   return blocks;
 }
 
+function findPytestComparison(expression) {
+  const operators = [' is not ', ' is ', '=='];
+  const openingBrackets = new Set(['(', '[', '{']);
+  const closingBrackets = new Set([')', ']', '}']);
+  let quote = '';
+  let escaped = false;
+  let depth = 0;
+  let comparison = null;
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index];
+
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        quote = '';
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (openingBrackets.has(character)) {
+      depth += 1;
+      continue;
+    }
+
+    if (closingBrackets.has(character)) {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+
+    const operator = operators.find((candidate) => expression.startsWith(candidate, index));
+    if (operator && (!comparison || depth < comparison.depth)) {
+      comparison = { index, operator, depth };
+    }
+  }
+
+  return comparison;
+}
+
 function extractPytestAssertionDetails(body = '') {
   const sourceLineMatch = body.match(/^\s*>\s*(.+)$/m);
   const errorLines = [...body.matchAll(/^\s*E\s+(.+)$/gm)]
@@ -119,14 +166,14 @@ function extractPytestAssertionDetails(body = '') {
   }
 
   const expression = expressionMatch[1].trim();
-  const operators = [' is not ', ' is ', '=='];
-  const operator = operators.find((candidate) => expression.includes(candidate));
+  const comparison = findPytestComparison(expression);
 
-  if (!operator) {
+  if (!comparison) {
     return null;
   }
 
-  const [receivedSide = '', expectedSide = ''] = expression.split(operator);
+  const receivedSide = expression.slice(0, comparison.index);
+  const expectedSide = expression.slice(comparison.index + comparison.operator.length);
 
   return {
     assertionLine: sourceLineMatch ? sourceLineMatch[1].trim() : '',

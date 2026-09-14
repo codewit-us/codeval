@@ -171,6 +171,34 @@ FAILED test_program.py::test_hat_variables - assert "Oaxaca" == "Veracruz"
   assert.equal(parsed.failure_details[0].expected, '"Veracruz"');
 });
 
+test('ignores comparison operators inside quoted assertion values', () => {
+  const comparisons = [
+    ["'This is wrong' == 'This is right'", "'This is wrong'", "'This is right'"],
+    ["'value is not ready' == 'value is not done'", "'value is not ready'", "'value is not done'"],
+    ["'left == side' == 'right == side'", "'left == side'", "'right == side'"],
+  ];
+
+  for (const [expression, received, expected] of comparisons) {
+    const stdout = `
+=================================== FAILURES ===================================
+______________________________ test_string_value _______________________________
+
+>       assert actual == expected
+E       assert ${expression}
+
+test_program.py:10: AssertionError
+=========================== short test summary info ============================
+FAILED test_program.py::test_string_value - assert ${expression}
+============================== 1 failed in 0.01s ===============================
+    `.trim();
+
+    const parsed = parsePytestOutput(stdout, '', 1);
+
+    assert.equal(parsed.failure_details[0].received, received);
+    assert.equal(parsed.failure_details[0].expected, expected);
+  }
+});
+
 test('extracts expected and received values for float equality assertions', () => {
   const stdout = `
 ============================= test session starts ==============================
