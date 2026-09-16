@@ -285,6 +285,16 @@ async function handleTestSetup(language, uniqueDir, className, testCode) {
   }
 }
 
+function extractCppOutputMismatch(message) {
+  const match = message.match(
+    /found\s*\(\s*"((?:\\.|[^"\\])*)"\s*!=\s*"((?:\\.|[^"\\])*)"\s*\)/
+  );
+
+  return match
+    ? { expected: match[1], received: match[2] }
+    : { expected: '', received: '' };
+}
+
 function parseCppTestOutput(output, stdout = '', stderr = '') {
   output = output.toString();
   let total_tests = 0;
@@ -307,10 +317,12 @@ function parseCppTestOutput(output, stdout = '', stderr = '') {
 
   const diagnosticBlocks = extractCppDiagnosticBlocks(output);
   diagnosticBlocks.forEach((message, index) => {
+    const { expected, received } = extractCppOutputMismatch(message);
+
     failures.push({
       test_case: `Test ${index + 1}`,
-      expected: '',
-      received: '',
+      expected,
+      received,
       error_message: message,
       rawout: `${stdout}\n${stderr}`,
       stderr,
