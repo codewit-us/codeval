@@ -18,6 +18,23 @@ test_program.h:15: Error: Assertion failed: first student-facing message
 test_program.h:16: Error: Assertion failed: second student-facing message
 Failed 1 and Skipped 0 of 2 tests`;
 
+const outputMismatchFailures = `Running cxxtest tests (3 tests)
+In codewit_test::testSuccessfulLogin:
+test_program.h:38: Error: Expected (removeWhitespace(expected) == removeWhitespace(actual)), found ("EnterauserEnterapasswordLoginsuccessful!juan" != "EnterauserEnterapasswordLoginsuccessful!")
+In codewit_test::testWrongPassword:
+test_program.h:67: Error: Expected (removeWhitespace(expected) == removeWhitespace(actual)), found ("EnterauserEnterapasswordOneofthethingsyouenteredisincorrect.Loginfailed" != "EnterauserEnterapasswordOneofthethingsenteredisincorrectLoginfailed")
+.
+Failed 2 and Skipped 0 of 3 tests
+Success rate: 33%`;
+
+const escapedOutputMismatch = `Running cxxtest tests (1 test)
+test_program.h:15: Error: Expected (expected == actual), found ("say \\"hello\\"\\\\n" != "")
+Failed 1 and Skipped 0 of 1 test`;
+
+const malformedOutputMismatch = `Running cxxtest tests (1 test)
+test_program.h:15: Error: Expected (expected == actual), found ("expected" != actual)
+Failed 1 and Skipped 0 of 1 test`;
+
 for (const [name, output, total] of [
   ['singular failure summary', oneTestFailure, 1],
   ['plural failure summary', pluralFailure, 2],
@@ -46,6 +63,44 @@ assert.deepStrictEqual(
     'Error: Assertion failed: second student-facing message',
   ]
 );
+
+const outputMismatchResult = parseCppTestOutput(outputMismatchFailures, outputMismatchFailures, '');
+assert.strictEqual(outputMismatchResult.tests_run, 3);
+assert.strictEqual(outputMismatchResult.passed, 1);
+assert.strictEqual(outputMismatchResult.failed, 2);
+assert.strictEqual(outputMismatchResult.failure_details.length, 2);
+assert.deepStrictEqual(
+  outputMismatchResult.failure_details.map(({ expected, received }) => ({ expected, received })),
+  [
+    {
+      expected: 'EnterauserEnterapasswordLoginsuccessful!juan',
+      received: 'EnterauserEnterapasswordLoginsuccessful!',
+    },
+    {
+      expected: 'EnterauserEnterapasswordOneofthethingsyouenteredisincorrect.Loginfailed',
+      received: 'EnterauserEnterapasswordOneofthethingsenteredisincorrectLoginfailed',
+    },
+  ]
+);
+assert.match(outputMismatchResult.failure_details[0].rawout, /testSuccessfulLogin/);
+assert.match(outputMismatchResult.failure_details[0].rawout, /testWrongPassword/);
+assert.match(outputMismatchResult.failure_details[0].rawout, /Failed 2 and Skipped 0 of 3 tests/);
+
+const escapedOutputMismatchResult = parseCppTestOutput(
+  escapedOutputMismatch,
+  escapedOutputMismatch,
+  ''
+);
+assert.strictEqual(escapedOutputMismatchResult.failure_details[0].expected, 'say \\"hello\\"\\\\n');
+assert.strictEqual(escapedOutputMismatchResult.failure_details[0].received, '');
+
+const malformedOutputMismatchResult = parseCppTestOutput(
+  malformedOutputMismatch,
+  malformedOutputMismatch,
+  ''
+);
+assert.strictEqual(malformedOutputMismatchResult.failure_details[0].expected, '');
+assert.strictEqual(malformedOutputMismatchResult.failure_details[0].received, '');
 
 const assertionResponse = buildCppTestResponse(
   { state: 'failed', runtime_error: 'Execution failed with code 1', failure_details: [] },
